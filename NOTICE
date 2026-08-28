@@ -1,0 +1,7 @@
+opencode-mouth ports the behavior metric engine and profanity word list
+from oh-my-pi (https://github.com/can1357/oh-my-pi),
+packages/stats/src/user-metrics.ts, MIT licensed:
+
+Copyright (c) 2025 Mario Zechner
+Copyright (c) 2025-2026 Can Bölük
+Copyright (c) 2026 Stencil Labs, Inc.
