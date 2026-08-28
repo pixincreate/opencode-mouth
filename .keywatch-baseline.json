@@ -1792,6 +1792,20 @@
       "finding_type": "Base64 Encoded String",
       "matched_content_hash": "cbad71fc73163ba9380d3e38b8b00eba5219fc4e2ff46fa8513d9a33ba3b5f3c",
       "plugin_name": "Base64Detector"
+    },
+    {
+      "file_path": "package-lock.json",
+      "line_number": 1373,
+      "finding_type": "Base64 Encoded String",
+      "matched_content_hash": "9a591175b8b4a4ea72c049ccbaa8999e531e9323e20dc740dc9da1684e3c0cd4",
+      "plugin_name": "Base64Detector"
+    },
+    {
+      "file_path": "package-lock.json",
+      "line_number": 1754,
+      "finding_type": "Base64 Encoded String",
+      "matched_content_hash": "91c940457ff1ad0afcc9d32b543f598f3e97272689bd8d28977871bef570afb9",
+      "plugin_name": "Base64Detector"
     }
   ]
 }
