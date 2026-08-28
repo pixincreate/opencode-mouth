@@ -6,10 +6,12 @@ usage() {
 Usage: scripts/release.sh <version>
 
 Example:
-  scripts/release.sh 0.1.0
+  scripts/release.sh 1.0.1
 
-This updates package.json/package-lock.json when needed, runs checks, creates
-tag v<version>, and pushes the branch plus the tag.
+The default branch is protected: changes land through squash-merged pull
+requests with required status checks. This script bumps the version on a
+release branch, opens a PR, merges it once checks pass, then tags the
+squash commit and pushes the tag.
 EOF
 }
 
@@ -25,7 +27,12 @@ if [[ -z "$version" ]]; then
 fi
 
 if ! [[ "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?$ ]]; then
-  echo "Error: version must be semver, for example 0.1.0" >&2
+  echo "Error: version must be semver, for example 1.0.1" >&2
+  exit 1
+fi
+
+if ! command -v gh >/dev/null 2>&1; then
+  echo "Error: gh is required for the pull request release flow" >&2
   exit 1
 fi
 
@@ -46,6 +53,16 @@ if git rev-parse "$tag" >/dev/null 2>&1; then
   exit 1
 fi
 
+git pull --ff-only origin "$branch"
+
+release_branch="release/${tag}"
+git switch -c "$release_branch"
+
+cleanup_branch() {
+  git switch "$branch" >/dev/null 2>&1 || true
+  git branch -D "$release_branch" >/dev/null 2>&1 || true
+}
+
 current_version="$(node -p "JSON.parse(require('fs').readFileSync('package.json', 'utf8')).version")"
 if [[ "$current_version" != "$version" ]]; then
   npm version "$version" --no-git-tag-version
@@ -54,13 +71,51 @@ fi
 npm run check
 npm pack --dry-run
 
-if ! git diff --quiet -- package.json package-lock.json; then
-  git add package.json package-lock.json
-  git commit -m "chore: release ${tag}"
+if git diff --quiet -- package.json package-lock.json; then
+  echo "Error: nothing to release; package.json is already at ${version}" >&2
+  cleanup_branch
+  exit 1
 fi
 
-git tag -a "$tag" -m "opencode-mouth ${tag}"
+git add package.json package-lock.json
+git commit -m "chore: release ${tag}"
+git push -u origin "$release_branch"
 
-echo "Created ${tag}. Pushing ${branch} and tag..."
-git push origin "$branch"
+pr_url="$(gh pr create \
+  --title "chore: release ${tag}" \
+  --body "Version bump for ${tag}. Merging this PR is followed by tagging the squash commit, which triggers the release workflow." \
+  --base "$branch" \
+  --head "$release_branch")"
+echo "Opened ${pr_url}"
+
+if ! gh pr merge "$release_branch" --squash --auto --delete-branch; then
+  echo "Auto-merge unavailable; waiting for checks..."
+  gh pr checks "$release_branch" --watch
+  gh pr merge "$release_branch" --squash --delete-branch
+fi
+
+echo "Waiting for the release PR to merge..."
+merge_sha=""
+for _ in $(seq 1 60); do
+  state="$(gh pr view "$release_branch" --json state --jq .state)"
+  if [[ "$state" == "MERGED" ]]; then
+    merge_sha="$(gh pr view "$release_branch" --json mergeCommit --jq .mergeCommit.oid)"
+    break
+  fi
+  sleep 5
+done
+
+if [[ -z "$merge_sha" ]]; then
+  echo "Error: release PR did not merge in time. Merge it, then tag the squash commit with ${tag} manually." >&2
+  cleanup_branch
+  exit 1
+fi
+
+git switch "$branch"
+git pull --ff-only origin "$branch"
+git branch -D "$release_branch" >/dev/null 2>&1 || true
+
+git tag -a "$tag" -m "opencode-mouth ${tag}" "$merge_sha"
 git push origin "$tag"
+
+echo "Released ${tag} at ${merge_sha}."

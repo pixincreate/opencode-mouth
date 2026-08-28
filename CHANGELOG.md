@@ -4,6 +4,20 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+### Added
+
+- Contract tests for the built bundle: valid ESM, imports restricted to
+  host-provided modules, no dynamic imports
+- End-to-end installer tests covering fresh install, config preservation,
+  reinstall idempotency, and uninstall
+- Cross-platform CI job running the suite on macOS and on the oldest
+  supported Node version
+
+### Changed
+
+- Release script now works with the protected default branch: it opens a
+  release PR, squash-merges it once checks pass, and tags the squash commit
+
 ## [1.0.0] - 2026-08-28
 
 ### Added
