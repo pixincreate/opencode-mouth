@@ -89,8 +89,19 @@ pr_url="$(gh pr create \
 echo "Opened ${pr_url}"
 
 if ! gh pr merge "$release_branch" --squash --auto --delete-branch; then
-  echo "Auto-merge unavailable; waiting for checks..."
-  gh pr checks "$release_branch" --watch
+  echo "Auto-merge unavailable; waiting for required checks..."
+  attempts=0
+  # `gh pr checks --watch` exits nonzero while checks are still unreported,
+  # so retry until they appear and pass.
+  until gh pr checks "$release_branch" --watch; do
+    attempts=$((attempts + 1))
+    if [[ "$attempts" -ge 30 ]]; then
+      echo "Error: required checks did not pass for ${release_branch}" >&2
+      cleanup_branch
+      exit 1
+    fi
+    sleep 10
+  done
   gh pr merge "$release_branch" --squash --delete-branch
 fi
 

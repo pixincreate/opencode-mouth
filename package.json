@@ -43,5 +43,10 @@
     "behavior",
     "dashboard"
   ],
-  "license": "MIT"
+  "license": "MIT",
+  "overrides": {
+    "@opentui/solid": {
+      "@babel/core": "^7.29.6"
+    }
+  }
 }
