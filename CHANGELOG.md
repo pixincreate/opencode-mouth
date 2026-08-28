@@ -4,6 +4,8 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+## [1.0.1] - 2026-08-28
+
 ### Added
 
 - Contract tests for the built bundle: valid ESM, imports restricted to
@@ -17,6 +19,8 @@ All notable changes to this project will be documented in this file.
 
 - Release script now works with the protected default branch: it opens a
   release PR, squash-merges it once checks pass, and tags the squash commit
+- Development dependencies updated: @opentui packages to 0.5.8 in lockstep,
+  solid-js to 1.9.15, TypeScript to 7
 
 ## [1.0.0] - 2026-08-28
 
