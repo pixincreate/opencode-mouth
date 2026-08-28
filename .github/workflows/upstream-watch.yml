@@ -1,0 +1,107 @@
+name: Upstream watch
+
+# Watches the oh-my-pi behavior feature this plugin ports. When upstream
+# changes a tracked file, this opens (or updates) an issue asking to port
+# the change and bump the pinned SHA in upstream.json.
+
+on:
+  schedule:
+    - cron: "17 6 * * 1" # weekly, Monday 06:17 UTC
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  issues: write
+
+jobs:
+  watch:
+    name: Check oh-my-pi behavior feature for changes
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v7
+
+      - name: Compare pinned upstream commits
+        uses: actions/github-script@v8
+        with:
+          script: |
+            const fs = require("fs");
+            const pin = JSON.parse(fs.readFileSync("upstream.json", "utf8"));
+            const [owner, repo] = pin.repo.split("/");
+
+            const drifted = [];
+            for (const [path, pinned] of Object.entries(pin.paths)) {
+              const commits = await github.rest.repos.listCommits({
+                owner,
+                repo,
+                path,
+                per_page: 1,
+              });
+              const latest = commits.data[0];
+              if (!latest) {
+                core.warning(`No commits found upstream for ${path}`);
+                continue;
+              }
+              if (latest.sha !== pinned) {
+                drifted.push({
+                  path,
+                  pinned,
+                  latest: latest.sha,
+                  date: latest.commit.committer.date,
+                  url: latest.html_url,
+                });
+              }
+            }
+
+            if (drifted.length === 0) {
+              core.info("Upstream behavior feature is unchanged.");
+              return;
+            }
+
+            const title = "Upstream oh-my-pi behavior feature changed";
+            const lines = [
+              `Upstream [\`${pin.repo}\`](https://github.com/${pin.repo}) changed tracked behavior files.`,
+              "",
+              "| File | Pinned | Latest |",
+              "| ---- | ------ | ------ |",
+              ...drifted.map(
+                (d) =>
+                  `| \`${d.path}\` | \`${d.pinned.slice(0, 7)}\` | [\`${d.latest.slice(0, 7)}\`](${d.url}) (${d.date}) |`,
+              ),
+              "",
+              "Review the upstream diff, port relevant changes into `src/metrics.ts` / the dashboard,",
+              "then update the pinned SHAs in `upstream.json`.",
+              "",
+              ...drifted.map(
+                (d) =>
+                  `- Diff: https://github.com/${pin.repo}/compare/${d.pinned}...${d.latest}`,
+              ),
+            ];
+            const body = lines.join("\n");
+
+            const open = await github.rest.issues.listForRepo({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              state: "open",
+              labels: "upstream",
+            });
+            const existing = open.data.find((issue) => issue.title === title);
+            if (existing) {
+              await github.rest.issues.update({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: existing.number,
+                body,
+              });
+              core.info(`Updated issue #${existing.number}`);
+            } else {
+              const created = await github.rest.issues.create({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                title,
+                body,
+                labels: ["upstream"],
+              });
+              core.info(`Opened issue #${created.data.number}`);
+            }

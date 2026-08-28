@@ -1,0 +1,57 @@
+name: Release
+
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Tag to release, for example v0.1.0"
+        required: true
+        type: string
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    name: Build and publish release artifacts
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v7
+        with:
+          ref: ${{ github.event.inputs.tag || github.ref_name }}
+
+      - name: Set up Node.js 26
+        uses: actions/setup-node@v6
+        with:
+          node-version: 26
+          cache: npm
+
+      - name: Install npm dependencies with clean lockfile
+        run: npm ci --legacy-peer-deps
+
+      - name: Run checks
+        run: npm run check
+
+      - name: Build release artifacts
+        run: |
+          mkdir -p release
+          cp dist/tui.js release/tui.js
+          npm pack --pack-destination release
+
+      - name: Create GitHub release
+        uses: softprops/action-gh-release@v3.0.1
+        with:
+          tag_name: ${{ github.event.inputs.tag || github.ref_name }}
+          name: opencode-mouth ${{ github.event.inputs.tag || github.ref_name }}
+          token: ${{ secrets.GITHUB_TOKEN }}
+          body: |
+            Install with the one-line installer, or download `tui.js` and point your `tui.jsonc` plugin list at it.
+
+            See README.md for setup.
+          files: |
+            release/tui.js
+            release/*.tgz

@@ -1,0 +1,46 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [master, main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  check:
+    name: ShellCheck, typecheck, build, and tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v7
+
+      - name: Set up Node.js 26
+        uses: actions/setup-node@v6
+        with:
+          node-version: 26
+          cache: npm
+
+      - name: Install ShellCheck
+        run: sudo apt-get update && sudo apt-get install -y shellcheck
+
+      - name: Install npm dependencies with clean lockfile
+        run: npm ci --legacy-peer-deps
+
+      - name: Run ShellCheck
+        run: npm run shellcheck
+
+      - name: Typecheck
+        run: npm run typecheck
+
+      - name: Build plugin bundle
+        run: npm run build
+
+      - name: Run tests
+        run: npm test

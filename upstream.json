@@ -1,0 +1,8 @@
+{
+  "repo": "can1357/oh-my-pi",
+  "comment": "Pinned upstream commits for the oh-my-pi behavior feature this plugin ports. The upstream-watch workflow compares these against the latest commit touching each path and opens an issue when they drift. After porting upstream changes, update the pinned SHAs.",
+  "paths": {
+    "packages/stats/src/user-metrics.ts": "c68a01f597b06661b2aea838df763e4c45e63e8a",
+    "packages/stats/src/client/routes/BehaviorRoute.tsx": "e9888367d1611d9e532aad04423773b31b0da805"
+  }
+}

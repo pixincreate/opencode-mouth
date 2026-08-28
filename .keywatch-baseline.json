@@ -1519,6 +1519,20 @@
       "finding_type": "Base64 Encoded String",
       "matched_content_hash": "cc0b88eec036e2fac38875df7a81e189ffbe021e74b35218e1a3beed81e01332",
       "plugin_name": "Base64Detector"
+    },
+    {
+      "file_path": "upstream.json",
+      "line_number": 5,
+      "finding_type": "Random String",
+      "matched_content_hash": "9dbbb1d405c80592936b56368e8db5789a407d95883648e21fa3b8f5d3fe045a",
+      "plugin_name": "RandomString"
+    },
+    {
+      "file_path": "upstream.json",
+      "line_number": 6,
+      "finding_type": "Random String",
+      "matched_content_hash": "5bc061e339d1ff9ca15459ea61ca2dbc92dbc0a0a9ff595c4cdb73dc9b02bc3f",
+      "plugin_name": "RandomString"
     }
   ]
 }
