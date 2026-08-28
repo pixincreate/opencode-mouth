@@ -1533,6 +1533,265 @@
       "finding_type": "Random String",
       "matched_content_hash": "5bc061e339d1ff9ca15459ea61ca2dbc92dbc0a0a9ff595c4cdb73dc9b02bc3f",
       "plugin_name": "RandomString"
+    },
+    {
+      "file_path": "package-lock.json",
+      "line_number": 1538,
+      "finding_type": "Base64 Encoded String",
+      "matched_content_hash": "775baa7c115b2ade723a40792b245d3a309b2b1122d39a3d7356999d175eb494",
+      "plugin_name": "Base64Detector"
+    },
+    {
+      "file_path": "package-lock.json",
+      "line_number": 1565,
+      "finding_type": "Base64 Encoded String",
+      "matched_content_hash": "1dc81e1ae2c4970229aa3290b7fce58c8373fad2039c81209b4b6e0475909b8d",
+      "plugin_name": "Base64Detector"
+    },
+    {
+      "file_path": "package-lock.json",
+      "line_number": 1579,
+      "finding_type": "Base64 Encoded String",
+      "matched_content_hash": "6d4dbfcbc08e6d47060c2fe683f746715a073929d01d059ea93f652979c5527c",
+      "plugin_name": "Base64Detector"
+    },
+    {
+      "file_path": "package-lock.json",
+      "line_number": 1593,
+      "finding_type": "Base64 Encoded String",
+      "matched_content_hash": "b5e521a7022ff27071c48f1b6976a85d3454c0e907062c255b9158c9f42c381d",
+      "plugin_name": "Base64Detector"
+    },
+    {
+      "file_path": "package-lock.json",
+      "line_number": 1607,
+      "finding_type": "Base64 Encoded String",
+      "matched_content_hash": "c948ac41adb0fecab868b64b30e21c0d4bbc13af7d3b632b0502f69aa284b45c",
+      "plugin_name": "Base64Detector"
+    },
+    {
+      "file_path": "package-lock.json",
+      "line_number": 1624,
+      "finding_type": "Base64 Encoded String",
+      "matched_content_hash": "30bafb052dcbc2e3b5b74a318025a151fcb8cb391eda92c69eaa6595b5ad6fd9",
+      "plugin_name": "Base64Detector"
+    },
+    {
+      "file_path": "package-lock.json",
+      "line_number": 1638,
+      "finding_type": "Base64 Encoded String",
+      "matched_content_hash": "11e67c6ecbee069aa71f25824868545d4800e18a1d4e6a3810ff79d0d4a733ee",
+      "plugin_name": "Base64Detector"
+    },
+    {
+      "file_path": "package-lock.json",
+      "line_number": 1655,
+      "finding_type": "Base64 Encoded String",
+      "matched_content_hash": "85c3081a77303add9511e0484c510e88133fccbf6b64288afe6b70407cdbe7bc",
+      "plugin_name": "Base64Detector"
+    },
+    {
+      "file_path": "package-lock.json",
+      "line_number": 1669,
+      "finding_type": "Base64 Encoded String",
+      "matched_content_hash": "e232f4d4b8e88c4a456acb1a28e46fa2a505a2a14f96aa7c8e197ec53cdae5f3",
+      "plugin_name": "Base64Detector"
+    },
+    {
+      "file_path": "package-lock.json",
+      "line_number": 1669,
+      "finding_type": "Random String",
+      "matched_content_hash": "c89b77f8a2c0209a90d4aad0cb77f4bf5d7e406887133f991d39e84005e1f9b9",
+      "plugin_name": "RandomString"
+    },
+    {
+      "file_path": "package-lock.json",
+      "line_number": 1683,
+      "finding_type": "Base64 Encoded String",
+      "matched_content_hash": "5cc690f6fa0e7669ff6f8321eff18425fe206e42f78e9b113f7817b2ffc7298a",
+      "plugin_name": "Base64Detector"
+    },
+    {
+      "file_path": "package-lock.json",
+      "line_number": 1683,
+      "finding_type": "Random String",
+      "matched_content_hash": "3c518ac42aadc48badc6e289c7864a0ce98a1b38e521faf0b9bf156ffc004b37",
+      "plugin_name": "RandomString"
+    },
+    {
+      "file_path": "package-lock.json",
+      "line_number": 1713,
+      "finding_type": "Base64 Encoded String",
+      "matched_content_hash": "526f5389fea675939c442b52be7a0ec2bdfe9f3cbefdfb2dde25a230370195d5",
+      "plugin_name": "Base64Detector"
+    },
+    {
+      "file_path": "package-lock.json",
+      "line_number": 2182,
+      "finding_type": "Base64 Encoded String",
+      "matched_content_hash": "82545c495a68dfe814e124d201feb35d3007e258a734a39138751f5cda1cf6d1",
+      "plugin_name": "Base64Detector"
+    },
+    {
+      "file_path": "package-lock.json",
+      "line_number": 2199,
+      "finding_type": "Base64 Encoded String",
+      "matched_content_hash": "ebd2679ff3ddbbb5efd80d6d4bab3e788ee521afe269f63c584f666525143f77",
+      "plugin_name": "Base64Detector"
+    },
+    {
+      "file_path": "package-lock.json",
+      "line_number": 2216,
+      "finding_type": "Base64 Encoded String",
+      "matched_content_hash": "fd5bf2588bf8879f1ee5dc1f12771fd601df964f4060af3637ad6a3ff3b8897e",
+      "plugin_name": "Base64Detector"
+    },
+    {
+      "file_path": "package-lock.json",
+      "line_number": 2216,
+      "finding_type": "Random String",
+      "matched_content_hash": "2bcc52d0843a13f30017006d61427050fb7286e0581196efd245f04d17491941",
+      "plugin_name": "RandomString"
+    },
+    {
+      "file_path": "package-lock.json",
+      "line_number": 2233,
+      "finding_type": "Base64 Encoded String",
+      "matched_content_hash": "c2ac7730adfb48e9121d4ea2ae0e631afece9b2a59e8cfe39ca7f91fcb638d71",
+      "plugin_name": "Base64Detector"
+    },
+    {
+      "file_path": "package-lock.json",
+      "line_number": 2250,
+      "finding_type": "Base64 Encoded String",
+      "matched_content_hash": "f1f24bed63431e0ec49ae600983ae889cea500129d7cf896b369bde7a16c98ae",
+      "plugin_name": "Base64Detector"
+    },
+    {
+      "file_path": "package-lock.json",
+      "line_number": 2267,
+      "finding_type": "Base64 Encoded String",
+      "matched_content_hash": "35a48cbe09f3465661efb9720da0e1ce4b8e805894d72a45ab8e9b12803bfc2e",
+      "plugin_name": "Base64Detector"
+    },
+    {
+      "file_path": "package-lock.json",
+      "line_number": 2284,
+      "finding_type": "Base64 Encoded String",
+      "matched_content_hash": "4b5d5924e7fbab2d8961522452e486497e0097896d305a7670ac815875468706",
+      "plugin_name": "Base64Detector"
+    },
+    {
+      "file_path": "package-lock.json",
+      "line_number": 2301,
+      "finding_type": "Base64 Encoded String",
+      "matched_content_hash": "cd2c6dda2696e4689f8575746517a474e801856d382be43b911a4a4e0f683f67",
+      "plugin_name": "Base64Detector"
+    },
+    {
+      "file_path": "package-lock.json",
+      "line_number": 2318,
+      "finding_type": "Base64 Encoded String",
+      "matched_content_hash": "0c449dc55ced7cc5d7d8025b8a7886d40f027d9dfb2f6e5e05ffb29212d1a73e",
+      "plugin_name": "Base64Detector"
+    },
+    {
+      "file_path": "package-lock.json",
+      "line_number": 2335,
+      "finding_type": "Base64 Encoded String",
+      "matched_content_hash": "889ff4d26c4d40d9b0882d22e2c85112fbff60fe4befc47b84b8f7db677c97b2",
+      "plugin_name": "Base64Detector"
+    },
+    {
+      "file_path": "package-lock.json",
+      "line_number": 2352,
+      "finding_type": "Base64 Encoded String",
+      "matched_content_hash": "b3dcd5ad1a5592569f2e3ee7eacfe385560daa7b52a40907fcc2485c73e9d34a",
+      "plugin_name": "Base64Detector"
+    },
+    {
+      "file_path": "package-lock.json",
+      "line_number": 2369,
+      "finding_type": "Base64 Encoded String",
+      "matched_content_hash": "78df753edf46ea562fb0686a9234f9fe824522791305c5c3c032dd07c153e663",
+      "plugin_name": "Base64Detector"
+    },
+    {
+      "file_path": "package-lock.json",
+      "line_number": 2386,
+      "finding_type": "Base64 Encoded String",
+      "matched_content_hash": "30ee323266c7826d4bd3b1c5b3f7ba23cc0d0182cfc92637a8566d7c09ae82a1",
+      "plugin_name": "Base64Detector"
+    },
+    {
+      "file_path": "package-lock.json",
+      "line_number": 2403,
+      "finding_type": "Base64 Encoded String",
+      "matched_content_hash": "d01e1ba2d3153965286be0175a72a2b934a699f7a8589f94df6ccbb33b370455",
+      "plugin_name": "Base64Detector"
+    },
+    {
+      "file_path": "package-lock.json",
+      "line_number": 2420,
+      "finding_type": "Base64 Encoded String",
+      "matched_content_hash": "8cb72023512d5be3efb317453a504a7960f5185c31d4e265cd8045cddb7334a8",
+      "plugin_name": "Base64Detector"
+    },
+    {
+      "file_path": "package-lock.json",
+      "line_number": 2437,
+      "finding_type": "Base64 Encoded String",
+      "matched_content_hash": "3293177d6b432b847ae891c2b7bb92b3c0e41525b78165deb3170094d355d348",
+      "plugin_name": "Base64Detector"
+    },
+    {
+      "file_path": "package-lock.json",
+      "line_number": 2454,
+      "finding_type": "Base64 Encoded String",
+      "matched_content_hash": "84412624e4423307638df2892bb2c9cdf7e68acb6e0493e8221b2e1db90fbb84",
+      "plugin_name": "Base64Detector"
+    },
+    {
+      "file_path": "package-lock.json",
+      "line_number": 2471,
+      "finding_type": "Base64 Encoded String",
+      "matched_content_hash": "cf6e12ca11907f99b93712196da6c1c2b5a11ffb68e3d19ede65ee1cb7846df3",
+      "plugin_name": "Base64Detector"
+    },
+    {
+      "file_path": "package-lock.json",
+      "line_number": 2488,
+      "finding_type": "Base64 Encoded String",
+      "matched_content_hash": "9cf81d19161922c3c1465f78f8e9354fcb35b3fbed0966c5cf3d8f5edf106111",
+      "plugin_name": "Base64Detector"
+    },
+    {
+      "file_path": "package-lock.json",
+      "line_number": 2505,
+      "finding_type": "Base64 Encoded String",
+      "matched_content_hash": "f412febf5a228f2dfbac241cfefaf96766d706f87f32c142957f0777905b92e1",
+      "plugin_name": "Base64Detector"
+    },
+    {
+      "file_path": "package-lock.json",
+      "line_number": 2662,
+      "finding_type": "Base64 Encoded String",
+      "matched_content_hash": "eb94b6d078c487b17db7e14dad74ced0d09783d0b4c350decfffd956b86c89e0",
+      "plugin_name": "Base64Detector"
+    },
+    {
+      "file_path": "package-lock.json",
+      "line_number": 3511,
+      "finding_type": "Base64 Encoded String",
+      "matched_content_hash": "9384de8d06f8af1924f98e301f188bd6cbb514503f66a7cde48d1ce64f1fb006",
+      "plugin_name": "Base64Detector"
+    },
+    {
+      "file_path": "package-lock.json",
+      "line_number": 3580,
+      "finding_type": "Base64 Encoded String",
+      "matched_content_hash": "cbad71fc73163ba9380d3e38b8b00eba5219fc4e2ff46fa8513d9a33ba3b5f3c",
+      "plugin_name": "Base64Detector"
     }
   ]
 }
