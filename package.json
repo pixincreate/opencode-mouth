@@ -1,12 +1,12 @@
 {
   "name": "opencode-mouth",
-  "version": "0.1.0",
+  "version": "1.0.0",
   "description": "Potty mouth detector for OpenCode: measure what comes out of your model's mouth (and yours)",
   "type": "module",
   "exports": {
     "./tui": "./dist/tui.js"
   },
-  "files": [ 
+  "files": [
     "dist/tui.js",
     "dist/tui.js.map"
   ],
