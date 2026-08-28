@@ -33,15 +33,18 @@ Imports of `@opentui/*` and `solid-js` stay external: when OpenCode loads the fi
 ## Release
 
 ```bash
-npm run release -- 0.1.0
+npm run release -- 1.0.1
 ```
 
-That updates the package version, runs checks, commits the bump, creates `v0.1.0`, and pushes the branch and tag.
-The release workflow attaches `tui.js` and the npm tarball to the GitHub release, which is what the installer downloads.
+The default branch is protected: changes land through squash-merged pull requests with the CI check required.
+The release script bumps the version on a `release/vX.Y.Z` branch, opens a PR, merges it once checks pass, then tags the squash commit.
+The tag triggers the release workflow, which attaches `tui.js` and the npm tarball to the GitHub release; that is what the installer downloads.
 
 ## CI
 
-- `ci.yml`: ShellCheck, typecheck, build, and tests on pushes and PRs
+- `ci.yml`: ShellCheck, typecheck, build, and tests on pushes and PRs.
+  The job name `ShellCheck, typecheck, build, and tests` is a required status check in the branch ruleset; do not rename it without updating the ruleset.
+  A separate cross-platform job runs the suite on macOS and on the oldest supported Node.
 - `release.yml`: builds and publishes release artifacts on tags
 - `upstream-watch.yml`: weekly check of the oh-my-pi behavior feature.
   It compares the pinned SHAs in `upstream.json` against the latest upstream commits touching the tracked files and opens an issue with diff links when they drift.
