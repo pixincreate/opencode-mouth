@@ -1925,6 +1925,34 @@
       "finding_type": "Base64 Encoded String",
       "matched_content_hash": "9020aef6c942753f7e213805898590a388620c6e05f099116de1d252d5a49f24",
       "plugin_name": "Base64Detector"
+    },
+    {
+      "file_path": "package-lock.json",
+      "line_number": 1497,
+      "finding_type": "Base64 Encoded String",
+      "matched_content_hash": "2330033c469a099336c43becb035dc22117526fcbfa5b312af2b8eb75fae0289",
+      "plugin_name": "Base64Detector"
+    },
+    {
+      "file_path": "package-lock.json",
+      "line_number": 1526,
+      "finding_type": "Base64 Encoded String",
+      "matched_content_hash": "bb838b02ada87a4c5f627356509850495d93b96400e08ae6451e898a1f0234d3",
+      "plugin_name": "Base64Detector"
+    },
+    {
+      "file_path": "package-lock.json",
+      "line_number": 2156,
+      "finding_type": "Base64 Encoded String",
+      "matched_content_hash": "1a146cab6a7e18dc6ff25323f53859a4ee1474d364b0ae637320e83486b3e5d4",
+      "plugin_name": "Base64Detector"
+    },
+    {
+      "file_path": "package-lock.json",
+      "line_number": 2680,
+      "finding_type": "Base64 Encoded String",
+      "matched_content_hash": "09505465ddd5fe3253f536147de8dc20a3966b13650f06f19bd278a250e4d290",
+      "plugin_name": "Base64Detector"
     }
   ]
 }
