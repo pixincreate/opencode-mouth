@@ -980,7 +980,7 @@ const tui: TuiPlugin = async (api, options) => {
                       </text>
                     }
                   >
-                    <scrollbox ref={(el: ScrollBoxRenderable) => (scroller = el)} flexGrow={1}>
+                    <scrollbox ref={(el: ScrollBoxRenderable) => { scroller = el; }} flexGrow={1}>
                       {/* Panels draw their borders OUTSIDE their measured width (opentui), so
                           the content box must stay a few columns short of the scrollbox edge —
                           otherwise panel borders paint over the scrollbar column and the thumb
