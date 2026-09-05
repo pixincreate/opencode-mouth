@@ -15,7 +15,7 @@ import type {
 } from "@opencode-ai/plugin/tui";
 import type { ScrollBoxRenderable } from "@opentui/core";
 import { useTerminalDimensions } from "@opentui/solid";
-import { For, Match, Show, Switch, createMemo, createSignal, onCleanup } from "solid-js";
+import { For, Match, Show, Switch, createEffect, createMemo, createSignal, onCleanup } from "solid-js";
 import {
   buildRoleStats,
   dayKey,
@@ -27,13 +27,29 @@ import {
   type MetricRecord,
   type ModelTotals,
   type Role,
+  type MessageSample,
   type RoleStats,
   type Totals,
 } from "./aggregate.ts";
+import { queryGlobalSessions, queryMessageMetas, queryTextParts } from "./db.ts";
+import type { MessageMeta, SessionFingerprint } from "./db.ts";
+import { loadCachedSession, pruneSessionCache, saveCachedSessions, type CacheEntry } from "./cache.ts";
 
 const ROUTE = "mouth-behavior";
 const MODE = "mouth.behavior";
 const DEFAULT_SESSION_LIMIT = 200;
+/** Sentinel attribution for messages whose model could not be determined. */
+const UNKNOWN_MODEL = "unknown";
+const MODEL_FILTER_KEY = "f";
+/** Cache-check loop granularity: sessions per yield while matching fingerprints. */
+const CACHE_CHECK_CHUNK = 50;
+/** Body column width: terminal minus root padding and the scrollbar gutter. */
+const BODY_INSET = 9;
+/** Panel borders + inner padding, on top of BODY_INSET, for text width math. */
+const PANEL_CHROME = 4;
+/** Scrollbar thumb fix: apply quickly, then again once layout settles. */
+const THUMB_FIX_DELAY_MS = 100;
+const THUMB_FIX_SETTLE_MS = 600;
 const FETCH_CONCURRENCY = 6;
 const BAR_WIDTH = 22;
 const MAX_CHART_BARS = 15;
@@ -78,11 +94,13 @@ const metricsForRole = (role: Role) => METRICS.filter((m) => (m.roles as readonl
 interface MouthOptions {
   /** Number of most recent sessions to scan. */
   sessionLimit: number;
-  /** Session scope: the whole project, or only the current directory. */
-  scope: "project" | "directory";
+  /** Session scope: the whole project, only the current directory, or all sessions globally. */
+  scope: "project" | "directory" | "global";
   /** Initial time range filter. */
   range: RangeKey;
 }
+
+type Scope = MouthOptions["scope"];
 
 const parseOptions = (options: unknown): MouthOptions => {
   const record = options && typeof options === "object" ? (options as Record<string, unknown>) : {};
@@ -93,7 +111,7 @@ const parseOptions = (options: unknown): MouthOptions => {
   const range = RANGES.find((r) => r.key === record.range)?.key ?? "30d";
   return {
     sessionLimit: int(record.sessionLimit, DEFAULT_SESSION_LIMIT),
-    scope: record.scope === "directory" ? "directory" : "project",
+    scope: record.scope === "directory" || record.scope === "global" ? record.scope : "project",
     range,
   };
 };
@@ -161,11 +179,39 @@ interface ScanResult {
   loadedAt: number;
 }
 
+/**
+ * Normalize a message from any source into a scoreable sample. User messages
+ * nest the model (SDK: info.model, DB: $.model) while assistant messages carry
+ * top-level fields, so callers resolve per source and pass nullable values.
+ */
+function toSample(
+  role: string,
+  providerID: string | null | undefined,
+  modelID: string | null | undefined,
+  created: number,
+  text: string,
+): MessageSample {
+  const isUser = role === "user";
+  return {
+    role: isUser ? "user" : "assistant",
+    providerID: providerID ?? UNKNOWN_MODEL,
+    modelID: modelID ?? UNKNOWN_MODEL,
+    created,
+    text,
+  };
+}
+
 async function scan(
   api: TuiPluginApi,
   opts: MouthOptions,
   onProgress: (done: number, total: number) => void,
 ): Promise<ScanResult> {
+  // Global scope: read directly from the SQLite database
+  if (opts.scope === "global") {
+    return scanGlobal(opts, onProgress);
+  }
+
+  // Project/directory scope: use the SDK
   const list = await api.client.session.list(
     {
       limit: opts.sessionLimit,
@@ -191,23 +237,16 @@ async function scan(
           .map((part) => (part.type === "text" ? part.text : ""))
           .join("\n");
         if (!text.trim()) continue;
+        const isUser = info.role === "user";
         records.push(
           toRecord(
-            info.role === "user"
-              ? {
-                  role: "user",
-                  providerID: info.model?.providerID ?? "unknown",
-                  modelID: info.model?.modelID ?? "unknown",
-                  created: info.time.created,
-                  text,
-                }
-              : {
-                  role: "assistant",
-                  providerID: info.providerID,
-                  modelID: info.modelID,
-                  created: info.time.created,
-                  text,
-                },
+            toSample(
+              info.role,
+              isUser ? info.model?.providerID : info.providerID,
+              isUser ? info.model?.modelID : info.modelID,
+              info.time.created,
+              text,
+            ),
           ),
         );
       }
@@ -219,6 +258,86 @@ async function scan(
   });
 
   return { records, sessions: sessions.length, failures, loadedAt: Date.now() };
+}
+
+/**
+ * Sessions processed between progress paints. Small enough that the TUI
+ * repaints the progress bar between batches, large enough to amortize the queries.
+ */
+const SCAN_BATCH = 25;
+
+/** Let the TUI render before the next synchronous batch of work. */
+const yieldToUI = (): Promise<void> => new Promise((resolve) => setTimeout(resolve, 0));
+
+/**
+ * Scan all sessions from the SQLite database directly.
+ * Used when scope is "global".
+ *
+ * Each session's metrics are cached under its row-count fingerprint, so
+ * unchanged sessions are neither re-read nor re-scored; only the rest are
+ * fetched in batches (see db.ts for how the queries keep the huge JSON blobs
+ * of message/part rows out of the hot path).
+ */
+async function scanGlobal(
+  opts: MouthOptions,
+  onProgress: (done: number, total: number) => void,
+): Promise<ScanResult> {
+  await yieldToUI();
+  const sessionList = queryGlobalSessions(opts.sessionLimit);
+  onProgress(0, sessionList.length);
+
+  const records: MetricRecord[] = [];
+  const toSave: CacheEntry[] = [];
+  const stale: Array<{ id: string; fp: SessionFingerprint }> = [];
+  for (let start = 0; start < sessionList.length; start += CACHE_CHECK_CHUNK) {
+    if (start > 0) await yieldToUI();
+    for (const session of sessionList.slice(start, start + 50)) {
+      const fp = { messages: session.message_count, parts: session.part_count };
+      const cached = loadCachedSession(session.id, fp);
+      if (cached) records.push(...cached);
+      else stale.push({ id: session.id, fp });
+    }
+  }
+  const cachedCount = sessionList.length - stale.length;
+  onProgress(cachedCount, sessionList.length);
+
+  let failures = 0;
+  for (let start = 0; start < stale.length; start += SCAN_BATCH) {
+    await yieldToUI();
+    const batch = stale.slice(start, start + SCAN_BATCH);
+    try {
+      const batchIds = batch.map((entry) => entry.id);
+      const metas = queryMessageMetas(batchIds);
+      const texts = queryTextParts(batchIds);
+      const metasBySession = new Map<string, MessageMeta[]>();
+      for (const meta of metas) {
+        const list = metasBySession.get(meta.sessionId);
+        if (list) list.push(meta);
+        else metasBySession.set(meta.sessionId, [meta]);
+      }
+      for (const { id, fp } of batch) {
+        try {
+          const sessionRecords: MetricRecord[] = [];
+          for (const meta of metasBySession.get(id) ?? []) {
+            const text = texts.get(meta.id)?.join("\n").trim();
+            if (!text) continue;
+            sessionRecords.push(toRecord(toSample(meta.role, meta.providerID, meta.modelID, meta.created, text)));
+          }
+          toSave.push({ id, fp, records: sessionRecords });
+          records.push(...sessionRecords);
+        } catch {
+          failures += 1;
+        }
+      }
+    } catch {
+      failures += batch.length;
+    }
+    onProgress(cachedCount + Math.min(start + SCAN_BATCH, stale.length), sessionList.length);
+  }
+  saveCachedSessions(toSave);
+  pruneSessionCache(sessionList.map((session) => session.id));
+
+  return { records, sessions: sessionList.length, failures, loadedAt: Date.now() };
 }
 
 type LoadState =
@@ -431,6 +550,9 @@ function TrendChart(props: {
   );
 }
 
+/** Model rows shown before the tail collapses into a hint; keeps the scrollbar usable in global scope. */
+const MAX_MODEL_ROWS = 12;
+
 function ModelTable(props: { role: Role; stats: RoleStats; width: number; th: Palette }) {
   const columns = () =>
     props.role === "user"
@@ -455,7 +577,7 @@ function ModelTable(props: { role: Role; stats: RoleStats; width: number; th: Pa
       <text fg={props.th().textMuted}>
         {"MODEL".padEnd(nameWidth())} {columns().map((c) => c.padStart(cellWidth)).join(" ")}
       </text>
-      <For each={props.stats.byModel}>
+      <For each={props.stats.byModel.slice(0, MAX_MODEL_ROWS)}>
         {(model) => (
           <text>
             <span style={{ fg: props.th().text }}>
@@ -468,6 +590,11 @@ function ModelTable(props: { role: Role; stats: RoleStats; width: number; th: Pa
           </text>
         )}
       </For>
+      <Show when={props.stats.byModel.length > MAX_MODEL_ROWS}>
+        <text fg={props.th().textMuted}>
+          {`… and ${fmtInt(props.stats.byModel.length - MAX_MODEL_ROWS)} more models · ${MODEL_FILTER_KEY} to filter`}
+        </text>
+      </Show>
       <Show when={props.stats.byModel.length === 0}>
         <text fg={props.th().textMuted}>No messages recorded in this range.</text>
       </Show>
@@ -554,6 +681,7 @@ function Chip(props: { label: string; active: boolean; th: Palette; onPick: () =
 const tui: TuiPlugin = async (api, options) => {
   const opts = parseOptions(options);
   const [role, setRole] = createSignal<Role>("user");
+  const [scope, setScope] = createSignal<Scope>(opts.scope);
   const [range, setRange] = createSignal<RangeKey>(opts.range);
   const [metric, setMetric] = createSignal<MetricKey>("total");
   const [modelFilter, setModelFilter] = createSignal<string | undefined>(undefined);
@@ -561,6 +689,9 @@ const tui: TuiPlugin = async (api, options) => {
   let returnRoute: TuiRouteCurrent | undefined;
   let scroller: ScrollBoxRenderable | undefined;
   let loading = false;
+  // Where `g` returns to when leaving the global scope. If the config itself
+  // starts global, the first toggle drops to the whole project.
+  let returnScope: Scope = opts.scope === "global" ? "project" : opts.scope;
 
   const th: Palette = () => api.theme.current;
 
@@ -572,9 +703,16 @@ const tui: TuiPlugin = async (api, options) => {
   const load = async () => {
     if (loading) return;
     loading = true;
+    const wantedScope = scope();
     setState({ status: "loading", done: 0, total: 0 });
+    // Paint the loading state before any scanning work runs: the callers set
+    // signals and start the scan in the same event handler, and without this
+    // yield the first synchronous queries delay the repaint.
+    await yieldToUI();
     try {
-      const result = await scan(api, opts, (done, total) => setState({ status: "loading", done, total }));
+      const result = await scan(api, { ...opts, scope: wantedScope }, (done, total) =>
+        setState({ status: "loading", done, total }),
+      );
       setState({ status: "ready", ...result });
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
@@ -583,6 +721,20 @@ const tui: TuiPlugin = async (api, options) => {
     } finally {
       loading = false;
     }
+    // The scope can change while a scan is in flight (toggleGlobal is a no-op
+    // then), and the header always renders the live scope — rescan instead of
+    // leaving it next to the other scope's data.
+    if (scope() !== wantedScope) void load();
+  };
+
+  const toggleGlobal = () => {
+    if (scope() === "global") {
+      setScope(returnScope);
+    } else {
+      returnScope = scope();
+      setScope("global");
+    }
+    void load();
   };
 
   const open = () => {
@@ -667,7 +819,8 @@ const tui: TuiPlugin = async (api, options) => {
       { key: "q", cmd: () => close(), desc: "Close dashboard" },
       { key: "tab", cmd: () => pickRole(role() === "user" ? "assistant" : "user"), desc: "Toggle you / model" },
       { key: "m", cmd: () => cycleMetric(), desc: "Cycle trend metric" },
-      { key: "f", cmd: () => pickModel(), desc: "Filter by model" },
+      { key: MODEL_FILTER_KEY, cmd: () => pickModel(), desc: "Filter by model" },
+      { key: "g", cmd: () => toggleGlobal(), desc: "Toggle global scope" },
       { key: "r", cmd: () => void load(), desc: "Rescan sessions" },
       ...RANGES.map((r, index) => ({
         key: String(index + 1),
@@ -701,6 +854,40 @@ const tui: TuiPlugin = async (api, options) => {
             model: modelFilter(),
           });
         });
+        // opentui's slider clamps viewPortSize to the scroll range
+        // (Math.min(size, max - min)), capping the thumb at 50% of the track
+        // no matter how short the scroll distance is — with a 12-line range
+        // the thumb renders half the track instead of ~80%. Pin the honest
+        // thumb size (viewport/content) on the slider instance; recomputed
+        // whenever the body changes, restored when content fits the viewport.
+        createEffect(() => {
+          const current = stats();
+          if (!current || !scroller) return;
+          const fix = () => {
+            const box = scroller as any;
+            const sb = box?.verticalScrollBar;
+            const slider = sb?.slider;
+            if (!slider || !box.viewport) return;
+            const viewport = box.viewport.height;
+            const content = sb.scrollSize;
+            const virtualTrack = slider.height * 2; // half-block cell rendering
+            if (!viewport || !content || !virtualTrack) return;
+            if (!slider.__honestThumb) slider.__honestThumb = slider.getVirtualThumbSize;
+            if (content <= viewport) {
+              slider.getVirtualThumbSize = slider.__honestThumb;
+              return;
+            }
+            const virtualThumb = Math.min(virtualTrack, Math.floor(virtualTrack * (viewport / content)));
+            slider.getVirtualThumbSize = () => virtualThumb;
+            sb.requestRender?.();
+          };
+          const first = setTimeout(fix, THUMB_FIX_DELAY_MS);
+          const second = setTimeout(fix, THUMB_FIX_SETTLE_MS);
+          onCleanup(() => {
+            clearTimeout(first);
+            clearTimeout(second);
+          });
+        });
 
         return (
           <box
@@ -712,17 +899,18 @@ const tui: TuiPlugin = async (api, options) => {
             paddingLeft={2}
             paddingRight={2}
           >
-            <box flexDirection="row" justifyContent="space-between">
+            <box flexShrink={0} flexDirection="row" justifyContent="space-between">
               <text>
                 <span style={{ fg: th().accent }}>
                   <b>MOUTH</b>
                 </span>
                 <span style={{ fg: th().textMuted }}> measure what comes out of your model's mouth</span>
               </text>
-              <text fg={th().textMuted}>tab view · 1-5 range · m metric · f model · r rescan · esc close</text>
+              <text fg={th().textMuted}>tab view · 1-5 range · m metric · f model · g global · r rescan · esc close</text>
             </box>
 
-            <box flexDirection="row" gap={1} paddingTop={1} paddingBottom={1} flexWrap="wrap">
+            {/* flexShrink keeps these rows intact when the body overflows the fixed-height root — otherwise yoga eats their padding one line at a time */}
+            <box flexShrink={0} flexDirection="row" gap={1} paddingTop={1} paddingBottom={1} flexWrap="wrap">
               <Chip label="you" active={role() === "user"} th={th} onPick={() => pickRole("user")} />
               <Chip label="model" active={role() === "assistant"} th={th} onPick={() => pickRole("assistant")} />
               <text fg={th().border}>│</text>
@@ -744,7 +932,7 @@ const tui: TuiPlugin = async (api, options) => {
                     const value = state();
                     if (value.status !== "ready") return "";
                     const failed = value.failures > 0 ? ` · ${value.failures} failed` : "";
-                    return ` ${fmtInt(value.sessions)} sessions (${opts.scope})${failed} · scanned ${clockLabel(value.loadedAt)}`;
+                    return ` ${fmtInt(value.sessions)} sessions (${scope()})${failed} · scanned ${clockLabel(value.loadedAt)}`;
                   })()}
                 </text>
               </Show>
@@ -793,10 +981,14 @@ const tui: TuiPlugin = async (api, options) => {
                     }
                   >
                     <scrollbox ref={(el: ScrollBoxRenderable) => (scroller = el)} flexGrow={1}>
-                      <box flexDirection="column" gap={1} flexShrink={0}>
+                      {/* Panels draw their borders OUTSIDE their measured width (opentui), so
+                          the content box must stay a few columns short of the scrollbox edge —
+                          otherwise panel borders paint over the scrollbar column and the thumb
+                          peeks through only in the gap rows between panels */}
+                      <box flexDirection="column" gap={1} flexShrink={0} width={width() - BODY_INSET}>
                         <Cards cards={roleCards(role(), current)} th={th} />
                         <TrendChart stats={current} metric={metric()} sinceMs={sinceMs()} th={th} />
-                        <ModelTable role={role()} stats={current} width={width() - 4} th={th} />
+                        <ModelTable role={role()} stats={current} width={width() - BODY_INSET - PANEL_CHROME} th={th} />
                         <Breakdown role={role()} stats={current} th={th} />
                         <TopWords stats={current} th={th} />
                       </box>

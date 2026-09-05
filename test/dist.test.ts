@@ -14,7 +14,7 @@ import { test } from "node:test";
 
 const distPath = new URL("../dist/tui.js", import.meta.url).pathname;
 
-/** Modules OpenCode's runtime loader can rewrite to host instances. */
+/** Modules OpenCode's runtime loader can rewrite to host instances. Bun built-ins (bun:sqlite) and node built-ins (node:fs, node:path) resolve natively in the host runtime. */
 const HOST_MODULES = new Set([
   "@opentui/core",
   "@opentui/solid",
@@ -24,6 +24,9 @@ const HOST_MODULES = new Set([
   "@opentui/keymap",
   "solid-js",
   "solid-js/store",
+  "bun:sqlite",
+  "node:fs",
+  "node:path",
 ]);
 
 const readDist = (): string => {

@@ -26,6 +26,7 @@
     "@opentui/core": "0.5.8",
     "@opentui/keymap": "0.5.8",
     "@opentui/solid": "0.5.8",
+    "@types/bun": "^1.4.0",
     "@types/node": "^26.4.0",
     "babel-preset-solid": "^1.9.15",
     "esbuild": "^0.28.2",

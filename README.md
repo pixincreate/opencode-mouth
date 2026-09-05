@@ -37,6 +37,7 @@ Run `/behavior`, then drive it from the keyboard:
 | `1`-`5`     | time range: 24h, 7d, 30d, 90d, all       |
 | `m`         | cycle the trend metric                   |
 | `f`         | filter to one model                      |
+| `g`         | toggle the **global** scope              |
 | `r`         | rescan sessions                          |
 | `j` / `k`   | scroll                                   |
 | `esc` / `q` | close                                    |

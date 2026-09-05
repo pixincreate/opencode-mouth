@@ -1806,6 +1806,27 @@
       "finding_type": "Base64 Encoded String",
       "matched_content_hash": "91c940457ff1ad0afcc9d32b543f598f3e97272689bd8d28977871bef570afb9",
       "plugin_name": "Base64Detector"
+    },
+    {
+      "file_path": "package-lock.json",
+      "line_number": 2156,
+      "finding_type": "Base64 Encoded String",
+      "matched_content_hash": "bc7660687f5ee1b90f62fba33f4c1f69cdec2abf5193aef1947bb2c98904497a",
+      "plugin_name": "Base64Detector"
+    },
+    {
+      "file_path": "package-lock.json",
+      "line_number": 2680,
+      "finding_type": "Base64 Encoded String",
+      "matched_content_hash": "9a2827d1cc5e29719da71f35cdd798c93a7200c0585d98e426373e2e2dd992c2",
+      "plugin_name": "Base64Detector"
+    },
+    {
+      "file_path": "package-lock.json",
+      "line_number": 2680,
+      "finding_type": "Random String",
+      "matched_content_hash": "11c836f941fafa3cbcd495ed5158b98d86c7f7faa51e530bac224326c55a0fdb",
+      "plugin_name": "RandomString"
     }
   ]
 }

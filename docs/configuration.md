@@ -13,8 +13,12 @@ Pass options as a `[spec, options]` tuple in `~/.config/opencode/tui.jsonc`:
 | Option         | Default     | Description                                                      |
 | -------------- | ----------- | ---------------------------------------------------------------- |
 | `sessionLimit` | `200`       | Number of most recent sessions to scan.                          |
-| `scope`        | `"project"` | `"project"` scans the whole project, `"directory"` only the cwd. |
+| `scope`        | `"project"` | `"project"` scans the whole project, `"directory"` only the cwd, `"global"` reads all sessions from the OpenCode database. |
 | `range`        | `"30d"`     | Initial time range: `24h`, `7d`, `30d`, `90d`, or `all`.         |
+
+The config value is only the starting scope: pressing `g` in the dashboard toggles between the global scope and the scope you started in, rescanning each time.
+
+Global scans cache per-session metrics under `global-cache/` in the mouth state directory (`MOUTH_INSTALL_STATE_DIR`, default `~/.local/share/opencode-mouth`); the directory can be deleted at any time, it is rebuilt on the next scan.
 
 ## Manual install
 
