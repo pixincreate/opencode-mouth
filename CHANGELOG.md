@@ -4,6 +4,39 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+## [1.1.0] - 2026-09-05
+
+### Added
+
+- Global scope: press `g` in the dashboard to toggle between the current
+  project and every session across all projects; global reads OpenCode's
+  SQLite database directly via `bun:sqlite` (the embedded Bun runtime does
+  not implement `node:sqlite`)
+- `scope` configuration option (`project`, `directory`, or `global`) to
+  pick the starting scope
+- Per-session metrics cache keyed by session row counts, so rescans only
+  re-read sessions that changed; the first global scan pays once, later
+  ones are near-instant
+- Batched scanning that yields between batches so the progress bar stays
+  live while scanning
+- By-model table caps at 12 rows with an overflow hint; the long tail
+  stays reachable through the model filter
+
+### Fixed
+
+- Scrollbar thumb now reflects the real scroll distance: opentui clamped
+  it to half the track regardless of range, and panel backgrounds hid it
+  outside the gap rows
+- Dashboard header keeps its spacing when the by-model table grows long
+- Model table no longer overflows into the scrollbar column
+
+### Changed
+
+- Development dependencies updated: @opentui packages to 0.5.10 in
+  lockstep, @opencode-ai/plugin to 1.18.25, @types/node to 26.4.1;
+  Dependabot no longer proposes @opentui bumps (they are host-provided
+  and bumped manually in lockstep)
+
 ## [1.0.1] - 2026-08-28
 
 ### Added

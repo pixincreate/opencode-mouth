@@ -19,11 +19,16 @@ scripts/install.sh --clone
 
 - `src/metrics.ts`: behavior metric engine (oh-my-pi port)
 - `src/aggregate.ts`: pure aggregation with range and model filters
+- `src/db.ts`: direct SQLite reader for OpenCode's database (global scope)
+- `src/cache.ts`: per-session metrics cache for the global scan
 - `src/tui.tsx`: the `/behavior` command and dashboard UI
 - `build.mjs`: bundles `dist/tui.js`
 - `test/`: behavioral tests run by `node --test`
 - `scripts/`: installer and release helper
 - `upstream.json`: pinned oh-my-pi commits this port is based on
+- `.keywatch-baseline.json`: KeyWatch suppressions for known false
+  positives (npm integrity hashes in the lockfile); refresh with
+  `key-watch scan --staged --update-baseline`
 
 ## Build
 

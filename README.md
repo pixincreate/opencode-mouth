@@ -42,6 +42,9 @@ Run `/behavior`, then drive it from the keyboard:
 | `j` / `k`   | scroll                                   |
 | `esc` / `q` | close                                    |
 
+By default the dashboard reads the current project.
+`g` flips it to the **global** scope — every session across all projects, read straight from OpenCode's database, with a local cache keeping rescans fast.
+
 Curious what the numbers mean or want to tune it? See [docs/how-it-works.md](docs/how-it-works.md) and [docs/configuration.md](docs/configuration.md).
 
 ## Uninstallation
