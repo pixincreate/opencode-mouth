@@ -17,13 +17,27 @@ Now it does, and it points both ways.
 
 ## Installation
 
-One-liner:
+### From npm
+
+Add the package to the `plugin` list in `~/.config/opencode/tui.jsonc`:
+
+```jsonc
+{
+  "plugin": ["opencode-mouth"]
+}
+```
+
+Restart OpenCode and run `/behavior`.
+OpenCode installs the package from npm on first start and caches it.
+
+A bare package name resolves to the latest version once and stays on it.
+To update, pin a version instead (for example `"opencode-mouth@1.2.0"`), or delete the cached copy under `~/.cache/opencode/packages/` and restart OpenCode.
+
+### With the installer
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/pixincreate/opencode-mouth/master/scripts/install.sh | bash
 ```
-
-Restart OpenCode and run `/behavior`.
 
 Working on the plugin itself? Use `--clone` to build from source, or see [docs/development.md](docs/development.md).
 
