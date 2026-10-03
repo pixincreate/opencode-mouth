@@ -115,7 +115,7 @@ export function v2Host(context: Context): Host {
       return context.ui.dialog.select<string>(input);
     },
     current() {
-      const current = context.ui.router.current();
+      const current = { ...context.ui.router.current() };
       return { name: current.type === "plugin" ? current.name : current.type, restore: () => context.ui.router.navigate(current) };
     },
     navigate: (name) => context.ui.router.navigate(name === "home" ? { type: "home" } : { type: "plugin", name }),
@@ -125,7 +125,7 @@ export function v2Host(context: Context): Host {
           id: "mouth.behavior.open", title: "Mouth: behavior dashboard", group: "Mouth", palette: true,
           description: "Measure profanity and friction in your sessions", slash: { name: "behavior" }, run: open,
         }], bindings: ["mouth.behavior.open"] }));
-        context.keymap.layer(() => ({ mode, commands, bindings: commands.map((command) => command.id) }));
+        context.keymap.layer(() => ({ mode, commands, bindings: [...commands.map((command) => command.id), "app.exit"] }));
         return null;
       } });
     },
