@@ -145,6 +145,12 @@ const modelLabel = (model: ModelTotals): string => `${model.providerID}/${model.
 const clip = (text: string, width: number): string =>
   text.length <= width ? text : `${text.slice(0, Math.max(0, width - 1))}…`;
 
+/** Replace the home prefix so scanned paths stay short in the header. */
+const shortenPath = (path: string): string => {
+  const home = process.env.HOME;
+  return home && path.startsWith(`${home}/`) ? `~${path.slice(home.length)}` : path;
+};
+
 const bar = (ratio: number, width: number): { fill: string; rest: string } => {
   const clamped = Math.max(0, Math.min(1, ratio));
   const cells = clamped > 0 ? Math.max(1, Math.round(clamped * width)) : 0;
@@ -171,6 +177,8 @@ interface ScanResult {
   sessions: number;
   failures: number;
   loadedAt: number;
+  /** Directory or project the scan covered; absent for global database scans. */
+  target?: string;
 }
 
 async function scan(
@@ -184,24 +192,24 @@ async function scan(
   }
 
   // Project/directory scope: use the connected server
-  const sessions = await host.sessions(opts);
-  onProgress(0, sessions.length);
+  const { target, list } = await host.sessions(opts);
+  onProgress(0, list.length);
 
   const records: MetricRecord[] = [];
   let done = 0;
   let failures = 0;
 
-  await mapPool(sessions, FETCH_CONCURRENCY, async (session) => {
+  await mapPool(list, FETCH_CONCURRENCY, async (session) => {
     try {
       records.push(...(await session.samples()).map(toRecord));
     } catch {
       failures += 1;
     }
     done += 1;
-    onProgress(done, sessions.length);
+    onProgress(done, list.length);
   });
 
-  return { records, sessions: sessions.length, failures, loadedAt: Date.now() };
+  return { records, sessions: list.length, failures, loadedAt: Date.now(), target };
 }
 
 /**
@@ -884,7 +892,8 @@ const setupDashboard = async (host: Host) => {
                     const value = state();
                     if (value.status !== "ready") return "";
                     const failed = value.failures > 0 ? ` · ${value.failures} failed` : "";
-                    return ` ${fmtInt(value.sessions)} sessions (${scope()})${failed} · scanned ${clockLabel(value.loadedAt)}`;
+                    const where = value.target ? ` · ${shortenPath(value.target)}` : "";
+                    return ` ${fmtInt(value.sessions)} sessions (${scope()}${where})${failed} · scanned ${clockLabel(value.loadedAt)}`;
                   })()}
                 </text>
               </Show>

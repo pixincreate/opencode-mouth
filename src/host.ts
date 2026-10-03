@@ -22,7 +22,7 @@ export interface Command {
 export interface Host {
   options: unknown;
   theme(): Palette;
-  sessions(options: ScopeOptions): Promise<Array<{ samples(): Promise<MessageSample[]> }>>;
+  sessions(options: ScopeOptions): Promise<{ target: string; list: Array<{ samples(): Promise<MessageSample[]> }> }>;
   toast(input: TuiToast): void;
   select(input: { title: string; options: Array<{ title: string; value: string; description: string }> }): Promise<string | undefined>;
   current(): { name?: string; restore(): void };
@@ -42,18 +42,21 @@ export function v1Host(api: TuiPluginApi, options: unknown): Host {
         roots: true,
         ...(opts.scope === "project" ? { scope: "project" as const } : {}),
       }, { throwOnError: true });
-      return (response.data ?? []).map((session) => ({
-        async samples() {
-          const response = await api.client.session.messages({ sessionID: session.id }, { throwOnError: true });
-          return (response.data ?? []).flatMap(({ info, parts }) => {
-            const text = parts.filter((part) => part.type === "text" && !part.synthetic && !part.ignored)
-              .map((part) => part.type === "text" ? part.text : "").join("\n");
-            if (!text.trim()) return [];
-            const model = info.role === "user" ? info.model : { providerID: info.providerID, modelID: info.modelID };
-            return [{ role: info.role, providerID: model?.providerID ?? "unknown", modelID: model?.modelID ?? "unknown", created: info.time.created, text }];
-          });
-        },
-      }));
+      return {
+        target: api.state.path.directory,
+        list: (response.data ?? []).map((session) => ({
+          async samples() {
+            const response = await api.client.session.messages({ sessionID: session.id }, { throwOnError: true });
+            return (response.data ?? []).flatMap(({ info, parts }) => {
+              const text = parts.filter((part) => part.type === "text" && !part.synthetic && !part.ignored)
+                .map((part) => part.type === "text" ? part.text : "").join("\n");
+              if (!text.trim()) return [];
+              const model = info.role === "user" ? info.model : { providerID: info.providerID, modelID: info.modelID };
+              return [{ role: info.role, providerID: model?.providerID ?? "unknown", modelID: model?.modelID ?? "unknown", created: info.time.created, text }];
+            });
+          },
+        })),
+      };
     },
     toast: (input) => api.ui.toast(input),
     select: (input) => new Promise((resolve) => {
@@ -95,19 +98,22 @@ export function v2Host(context: Context): Host {
       const filter = opts.scope === "directory" ? { directory }
         : { project: (await context.client.location.get({ location: { directory } })).project.id };
       const response = await context.client.session.list({ limit: opts.sessionLimit, order: "desc", parentID: null, ...filter });
-      return (response.data ?? []).map((session) => ({
-        async samples() {
-          const messages: SessionMessageInfo[] = [];
-          let cursor: string | undefined;
-          do {
-            const response = await context.client.message.list({ sessionID: session.id, ...(cursor ? { cursor } : { order: "asc" as const }) });
-            if (!response.data?.length) break;
-            messages.push(...response.data);
-            cursor = response.cursor?.next ?? undefined;
-          } while (cursor);
-          return v2Samples(messages, session.model);
-        },
-      }));
+      return {
+        target: directory,
+        list: (response.data ?? []).map((session) => ({
+          async samples() {
+            const messages: SessionMessageInfo[] = [];
+            let cursor: string | undefined;
+            do {
+              const response = await context.client.message.list({ sessionID: session.id, ...(cursor ? { cursor } : { order: "asc" as const }) });
+              if (!response.data?.length) break;
+              messages.push(...response.data);
+              cursor = response.cursor?.next ?? undefined;
+            } while (cursor);
+            return v2Samples(messages, session.model);
+          },
+        })),
+      };
     },
     toast: (input) => context.ui.toast.show(input),
     select: (input) => {
