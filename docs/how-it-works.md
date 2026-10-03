@@ -1,5 +1,9 @@
 # How it works
 
+Mouth uses the host's SQLite implementation.
+Bun hosts use `bun:sqlite`; Node hosts use `node:sqlite`.
+The Node TUI host requires Node 26.1 or later for OpenTUI's `node:ffi` support.
+
 ## Scanning
 
 The plugin talks to the OpenCode server through the plugin SDK client:

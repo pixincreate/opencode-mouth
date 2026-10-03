@@ -50,6 +50,7 @@ await esbuild.build({
       "@opentui/keymap",
       "solid-js",
       "bun:sqlite",
+      "node:sqlite",
       "node:fs",
       "node:path",
     ],

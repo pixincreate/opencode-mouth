@@ -80,11 +80,13 @@ test(`v${major}: fresh install points at a loadable plugin`, () => {
 test(`v${major}: install preserves existing plugin entries`, () => {
   const box = sandbox(major);
   try {
-    writeFileSync(box.config, `{\n  "${key}": [\n    "/existing/other-plugin.js"\n  ]\n}\n`);
+    writeFileSync(box.config, `{\n  // "${key}": ["example-plugin"],\n  "${key}": [\n    "/existing/other-plugin.js"\n  ]\n}\n`);
     box.run();
     const config = readFileSync(box.config, "utf8");
     assert.ok(config.includes("/existing/other-plugin.js"), "existing entry was dropped");
     assert.equal(managedCount(config), 1);
+    const parsed = JSON.parse(config.replace(/^\s*\/\/.*$/gm, "").replace(/,(\s*[\]}])/g, "$1"));
+    assert.deepEqual(parsed[key], [major === 1 ? join(box.stateDir, "tui.js") : box.stateDir, "/existing/other-plugin.js"]);
   } finally {
     box.cleanup();
   }
@@ -109,6 +111,28 @@ test(`v${major}: unsupported compact config fails without changing it`, () => {
     const original = '{"theme": "test"}\n';
     writeFileSync(box.config, original);
     assert.throws(() => box.run(), /unsupported config layout/);
+    assert.equal(readFileSync(box.config, "utf8"), original);
+  } finally { box.cleanup(); }
+});
+
+test(`v${major}: commented plugin examples remain comments`, () => {
+  const box = sandbox(major);
+  const parse = () => JSON.parse(readFileSync(box.config, "utf8").replace(/^\s*\/\/.*$/gm, "").replace(/,(\s*[\]}])/g, "$1"));
+  try {
+    writeFileSync(box.config, `{\n  // "${key}": ["example-plugin"],\n  "theme": "test"\n}\n`);
+    box.run(); box.run();
+    assert.deepEqual(parse(), { [key]: [major === 1 ? join(box.stateDir, "tui.js") : box.stateDir], theme: "test" });
+    box.run("--uninstall");
+    assert.deepEqual(parse(), { [key]: [], theme: "test" });
+  } finally { box.cleanup(); }
+});
+
+test(`v${major}: block-comment layouts fail without changing config`, () => {
+  const box = sandbox(major);
+  try {
+    const original = `{\n  /* example\n  "${key}": []\n  */\n  "theme": "test"\n}\n`;
+    writeFileSync(box.config, original);
+    assert.throws(() => box.run(), /Remove block comments/);
     assert.equal(readFileSync(box.config, "utf8"), original);
   } finally { box.cleanup(); }
 });

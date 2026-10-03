@@ -67,6 +67,19 @@ try {
   const unattributed = querySamples(queryGlobalSessions(10)).get("v2-empty")![0]!;
   assert.equal(unattributed.modelID, "unknown");
   assert.equal(unattributed.providerID, "unknown");
+  const nodeResults = execFileSync("node", ["--input-type=module", "--eval", `
+    import assert from "node:assert/strict";
+    const { queryGlobalSessions, querySamples } = await import(${JSON.stringify(new URL("../src/db.ts", import.meta.url).href)});
+    const { saveCachedSessions, loadCachedSession, pruneSessionCache } = await import(${JSON.stringify(new URL("../src/cache.ts", import.meta.url).href)});
+    const result = [...querySamples(queryGlobalSessions(10))];
+    const fp = { messages: 1, parts: 1 };
+    saveCachedSessions([{ id: "node-cache", fp, records: [] }]);
+    assert.deepEqual(loadCachedSession("node-cache", fp), []);
+    pruneSessionCache([]);
+    assert.equal(loadCachedSession("node-cache", fp), undefined);
+    console.log(JSON.stringify(result));
+  `], { encoding: "utf8", env: process.env });
+  assert.deepEqual(JSON.parse(nodeResults), [...querySamples(queryGlobalSessions(10))], "Node and Bun must read identical scores and support cache transactions");
   const beforeReads = db.serialize();
   querySamples(queryGlobalSessions(10));
   assert.deepEqual(db.serialize(), beforeReads, "reading sessions must not mutate the source database");

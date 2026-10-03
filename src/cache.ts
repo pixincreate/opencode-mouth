@@ -11,7 +11,7 @@
  * the scan proceeds uncached.
  */
 
-import { Database } from "bun:sqlite";
+import { openDatabase, transaction, type Connection } from "./sqlite.ts";
 import { mkdirSync } from "node:fs";
 import { join } from "node:path";
 import type { MetricRecord } from "./aggregate.ts";
@@ -20,13 +20,13 @@ import { DB_PATH, type SessionFingerprint } from "./db.ts";
 const STATE_DIR = process.env.MOUTH_INSTALL_STATE_DIR ?? `${process.env.HOME}/.local/share/opencode-mouth`;
 const CACHE_PATH = join(STATE_DIR, "global-cache", "sessions.db");
 
-let db: Database | null = null;
+let db: Connection | null = null;
 
-function openCache(): Database | null {
+function openCache(): Connection | null {
   if (db) return db;
   try {
     mkdirSync(join(CACHE_PATH, ".."), { recursive: true });
-    db = new Database(CACHE_PATH);
+    db = openDatabase(CACHE_PATH);
     db.exec(
       `CREATE TABLE IF NOT EXISTS session_cache (
          session_id  TEXT PRIMARY KEY,
@@ -79,9 +79,9 @@ export function saveCachedSessions(entries: readonly CacheEntry[]): void {
     const save = conn.prepare(
       `INSERT OR REPLACE INTO session_cache (session_id, fingerprint, records) VALUES (?, ?, ?)`,
     );
-    conn.transaction(() => {
+    transaction(conn, () => {
       for (const entry of entries) save.run(entry.id, key(entry.fp), JSON.stringify(entry.records));
-    })();
+    });
   } catch {
     /* cache is best-effort */
   }
@@ -95,9 +95,9 @@ export function pruneSessionCache(keepIds: readonly string[]): void {
     const keep = new Set(keepIds);
     const rows = conn.prepare("SELECT session_id FROM session_cache").all() as { session_id: string }[];
     const remove = conn.prepare("DELETE FROM session_cache WHERE session_id = ?");
-    conn.transaction(() => {
+    transaction(conn, () => {
       for (const row of rows) if (!keep.has(row.session_id)) remove.run(row.session_id);
-    })();
+    });
   } catch {
     /* cache is best-effort */
   }

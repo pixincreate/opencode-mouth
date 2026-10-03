@@ -15,7 +15,7 @@
  * for just the handful of rows that matter (text parts).
  */
 
-import { Database } from "bun:sqlite";
+import { openDatabase, type Connection } from "./sqlite.ts";
 import type { MessageSample } from "./aggregate.ts";
 import type { ModelRef, SessionMessageInfo } from "@opencode/client";
 import { v2Samples } from "./messages.ts";
@@ -25,15 +25,15 @@ export const DB_PATH = process.env.OPENCODE_DB ?? `${process.env.XDG_DATA_HOME ?
 /** Serialized text parts always start with the type field; prefix length drives the substr check. */
 const TEXT_PART_PREFIX = '{"type":"text"';
 
-let db: Database | null = null;
+let db: Connection | null = null;
 
 function hasTable(name: string): boolean {
   return !!openDb().prepare("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = ?").get(name);
 }
 
-function openDb(): Database {
+function openDb(): Connection {
   if (db) return db;
-  db = new Database(DB_PATH, { readonly: true, create: false });
+  db = openDatabase(DB_PATH, true);
   return db;
 }
 

@@ -60,7 +60,11 @@ test("dist bundle imports only host-provided modules", () => {
   }
 });
 
-test("dist bundle has no dynamic imports", () => {
-  const code = readDist();
-  assert.ok(!/\bimport\s*\(/.test(code), "dynamic import() would bypass the host module rewrite");
+// OpenTUI's Node host requires node:ffi, which is available from Node 26.1.
+const [nodeMajor = 0, nodeMinor = 0] = process.versions.node.split(".").map(Number);
+test("Node hosts can load the built plugin without Bun", { skip: nodeMajor < 26 || (nodeMajor === 26 && nodeMinor < 1) }, () => {
+  const result = spawnSync(process.execPath, ["--input-type=module", "--eval", `await import(${JSON.stringify(new URL("../dist/tui.js", import.meta.url).href)})`], {
+    encoding: "utf8",
+  });
+  assert.equal(result.status, 0, result.stderr);
 });

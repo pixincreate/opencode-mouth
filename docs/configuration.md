@@ -35,6 +35,8 @@ V2 sessions bypass the cache so rescans include text updates that do not add row
 ## Manual install
 
 The installer manages the plugin entry for you, but you can also add it by hand.
+Use line comments (`//`) in installer-managed configuration.
+The installer rejects block comments (`/* ... */`) without changing your configuration.
 On v1, point the plugin list at the built `dist/tui.js`:
 
 ```json
