@@ -6,14 +6,21 @@ The plugin talks to the OpenCode server through the plugin SDK client:
 
 - `session.list` fetches the most recent root sessions.
   Subagent sessions are excluded so synthetic prompts do not pollute your stats.
-- `session.messages` fetches each session's messages with a small concurrency pool.
+- `session.messages` on v1 and paginated `message.list` on v2 fetch each session's messages with a small concurrency pool.
   A failing session is skipped and counted in the header, not fatal.
 
 Scanning happens when you open the dashboard for the first time and when you press `r`.
 
-Global scope reads the OpenCode database directly: message metadata is extracted per batch of sessions, and text parts are fetched by primary key after a cheap prefix check, so the huge JSON blobs most rows carry are never read whole.
-Both scopes count the same messages: synthetic and ignored parts are skipped everywhere, and a session counts as root when it has no parent — the same rule the SDK applies.
-Per-session metrics are cached under the mouth state directory keyed by each session's row counts, so rescans only re-read sessions that gained or lost messages; the first global scan pays the full cost once, every later one is milliseconds.
+Global scope reads the OpenCode database directly.
+V1 uses `session`, `message`, and text `part` rows.
+V2 uses `session_v2` and `session_message` in transcript sequence order.
+If both schemas contain a session ID, the v2 session takes precedence.
+Legacy-only sessions remain readable during partial migration.
+Both scopes skip synthetic content and count only root sessions.
+V2 scoring includes user text and top-level assistant text, not reasoning or nested tool output.
+V1 metrics use a database-specific cache keyed by row counts.
+That cache does not detect edits that leave row counts unchanged; delete the cache to force a fresh v1 global scan.
+V2 sessions bypass the cache so existing-row text updates remain visible.
 While the scan runs, a live progress bar keeps the dashboard responsive: the scan yields between batches so every batch paints immediately.
 
 ## Scoring
@@ -62,6 +69,9 @@ The scope toggle (`g`) is the exception: project, directory, and global read dif
 
 Your messages are attributed to the model you were talking to, so the "you" view answers "which model makes me swear the most".
 Model replies are attributed to the model that wrote them.
+V2 user attribution follows recorded model switches.
+When historical selection is unavailable, the reader falls back to the session model.
+Migrated transcripts can therefore lack exact historical user-model attribution.
 
 ## Theme
 

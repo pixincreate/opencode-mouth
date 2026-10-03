@@ -1,12 +1,12 @@
 /**
  * Per-session metrics cache for the global scan.
  *
- * Global sessions are immutable once written, so a scan only needs to re-read
- * sessions whose rows changed. Each session's MetricRecords are stored in a
+ * Each legacy session's MetricRecords are stored in a
  * small SQLite database under the mouth state directory, keyed by the
  * session's row counts (see db.ts). Counts detect every added or removed
- * message/part — which covers all streaming writes — but not an in-place edit
+ * message/part, but not an in-place edit
  * of an existing part with no row change; the next added row refreshes it.
+ * V2 sessions bypass this cache because streaming updates existing rows.
  * Everything here is best-effort: on any error the cache disables itself and
  * the scan proceeds uncached.
  */
@@ -15,7 +15,7 @@ import { Database } from "bun:sqlite";
 import { mkdirSync } from "node:fs";
 import { join } from "node:path";
 import type { MetricRecord } from "./aggregate.ts";
-import { chunk, placeholders, type SessionFingerprint } from "./db.ts";
+import { DB_PATH, type SessionFingerprint } from "./db.ts";
 
 const STATE_DIR = process.env.MOUTH_INSTALL_STATE_DIR ?? `${process.env.HOME}/.local/share/opencode-mouth`;
 const CACHE_PATH = join(STATE_DIR, "global-cache", "sessions.db");
@@ -45,9 +45,9 @@ function openCache(): Database | null {
  * were produced by whatever version saved them, and the key is the only
  * invalidation signal for sessions whose row counts did not change.
  */
-const CACHE_VERSION = "v2";
+const CACHE_VERSION = "v3";
 
-const key = (fp: SessionFingerprint): string => `${CACHE_VERSION}:${fp.messages}:${fp.parts}`;
+const key = (fp: SessionFingerprint): string => `${CACHE_VERSION}:${DB_PATH}:${fp.messages}:${fp.parts}`;
 
 /** Load cached records for a session whose fingerprint still matches. */
 export function loadCachedSession(id: string, fp: SessionFingerprint): MetricRecord[] | undefined {
@@ -92,13 +92,12 @@ export function pruneSessionCache(keepIds: readonly string[]): void {
   const conn = openCache();
   if (!conn) return;
   try {
-    for (const group of chunk(keepIds)) {
-      conn
-        .prepare(
-          `DELETE FROM session_cache WHERE session_id NOT IN (${placeholders(group.length)})`,
-        )
-        .run(...group);
-    }
+    const keep = new Set(keepIds);
+    const rows = conn.prepare("SELECT session_id FROM session_cache").all() as { session_id: string }[];
+    const remove = conn.prepare("DELETE FROM session_cache WHERE session_id = ?");
+    conn.transaction(() => {
+      for (const row of rows) if (!keep.has(row.session_id)) remove.run(row.session_id);
+    })();
   } catch {
     /* cache is best-effort */
   }

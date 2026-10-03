@@ -45,6 +45,14 @@ jobs:
       - name: Run tests
         run: npm test
 
+      - name: Set up Bun for database contracts
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.4.2
+
+      - name: Run database contracts
+        run: npm run test:db
+
   cross-platform:
     name: Tests on ${{ matrix.os }} with Node ${{ matrix.node }}
     runs-on: ${{ matrix.os }}
@@ -75,3 +83,11 @@ jobs:
 
       - name: Run tests
         run: npm test
+
+      - name: Set up Bun for database contracts
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.4.2
+
+      - name: Run database contracts
+        run: npm run test:db

@@ -42,15 +42,17 @@ await esbuild.build({
   sourcemap: true,
   entryPoints: ["./src/tui.tsx"],
   outfile: "./dist/tui.js",
-  external: [
-    "@opentui/core",
-    "@opentui/solid",
-    "@opentui/keymap",
-    "solid-js",
-    "bun:sqlite",
-    "node:fs",
-    "node:path",
-  ],
+    external: [
+      "@opencode/plugin",
+      "@opencode/plugin/tui",
+      "@opentui/core",
+      "@opentui/solid",
+      "@opentui/keymap",
+      "solid-js",
+      "bun:sqlite",
+      "node:fs",
+      "node:path",
+    ],
   plugins: [solidPlugin],
 });
 
