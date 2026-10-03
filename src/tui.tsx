@@ -6,13 +6,9 @@
  * scans the project's sessions and measures profanity and friction signals
  * in both your prompts and the model's replies.
  */
-import type {
-  TuiPlugin,
-  TuiPluginApi,
-  TuiPluginModule,
-  TuiRouteCurrent,
-  TuiThemeCurrent,
-} from "@opencode-ai/plugin/tui";
+import type { TuiPluginModule } from "@opencode-ai/plugin/tui";
+import type { Plugin } from "@opencode/plugin/tui";
+import { v1Host, v2Host, type Host } from "./host.ts";
 import type { ScrollBoxRenderable } from "@opentui/core";
 import { useTerminalDimensions } from "@opentui/solid";
 import { For, Match, Show, Switch, createEffect, createMemo, createSignal, onCleanup } from "solid-js";
@@ -27,19 +23,17 @@ import {
   type MetricRecord,
   type ModelTotals,
   type Role,
-  type MessageSample,
   type RoleStats,
   type Totals,
 } from "./aggregate.ts";
-import { queryGlobalSessions, queryMessageMetas, queryTextParts } from "./db.ts";
-import type { MessageMeta, SessionFingerprint } from "./db.ts";
+import { queryGlobalSessions, querySamples } from "./db.ts";
+import type { SessionRow, SessionFingerprint } from "./db.ts";
 import { loadCachedSession, pruneSessionCache, saveCachedSessions, type CacheEntry } from "./cache.ts";
+import type { Palette as ThemePalette } from "./theme.ts";
 
 const ROUTE = "mouth-behavior";
 const MODE = "mouth.behavior";
 const DEFAULT_SESSION_LIMIT = 200;
-/** Sentinel attribution for messages whose model could not be determined. */
-const UNKNOWN_MODEL = "unknown";
 const MODEL_FILTER_KEY = "f";
 /** Cache-check loop granularity: sessions per yield while matching fingerprints. */
 const CACHE_CHECK_CHUNK = 50;
@@ -54,7 +48,7 @@ const FETCH_CONCURRENCY = 6;
 const BAR_WIDTH = 22;
 const MAX_CHART_BARS = 15;
 
-type Palette = () => TuiThemeCurrent;
+type Palette = () => ThemePalette;
 
 type ColorToken = "primary" | "accent" | "error" | "warning" | "info" | "success" | "text" | "textMuted";
 
@@ -179,30 +173,8 @@ interface ScanResult {
   loadedAt: number;
 }
 
-/**
- * Normalize a message from any source into a scoreable sample. User messages
- * nest the model (SDK: info.model, DB: $.model) while assistant messages carry
- * top-level fields, so callers resolve per source and pass nullable values.
- */
-function toSample(
-  role: string,
-  providerID: string | null | undefined,
-  modelID: string | null | undefined,
-  created: number,
-  text: string,
-): MessageSample {
-  const isUser = role === "user";
-  return {
-    role: isUser ? "user" : "assistant",
-    providerID: providerID ?? UNKNOWN_MODEL,
-    modelID: modelID ?? UNKNOWN_MODEL,
-    created,
-    text,
-  };
-}
-
 async function scan(
-  api: TuiPluginApi,
+  host: Host,
   opts: MouthOptions,
   onProgress: (done: number, total: number) => void,
 ): Promise<ScanResult> {
@@ -211,16 +183,8 @@ async function scan(
     return scanGlobal(opts, onProgress);
   }
 
-  // Project/directory scope: use the SDK
-  const list = await api.client.session.list(
-    {
-      limit: opts.sessionLimit,
-      roots: true,
-      ...(opts.scope === "project" ? { scope: "project" as const } : {}),
-    },
-    { throwOnError: true },
-  );
-  const sessions = list.data ?? [];
+  // Project/directory scope: use the connected server
+  const sessions = await host.sessions(opts);
   onProgress(0, sessions.length);
 
   const records: MetricRecord[] = [];
@@ -229,27 +193,7 @@ async function scan(
 
   await mapPool(sessions, FETCH_CONCURRENCY, async (session) => {
     try {
-      const response = await api.client.session.messages({ sessionID: session.id }, { throwOnError: true });
-      for (const message of response.data ?? []) {
-        const info = message.info;
-        const text = message.parts
-          .filter((part) => part.type === "text" && !part.synthetic && !part.ignored)
-          .map((part) => (part.type === "text" ? part.text : ""))
-          .join("\n");
-        if (!text.trim()) continue;
-        const isUser = info.role === "user";
-        records.push(
-          toRecord(
-            toSample(
-              info.role,
-              isUser ? info.model?.providerID : info.providerID,
-              isUser ? info.model?.modelID : info.modelID,
-              info.time.created,
-              text,
-            ),
-          ),
-        );
-      }
+      records.push(...(await session.samples()).map(toRecord));
     } catch {
       failures += 1;
     }
@@ -288,14 +232,15 @@ async function scanGlobal(
 
   const records: MetricRecord[] = [];
   const toSave: CacheEntry[] = [];
-  const stale: Array<{ id: string; fp: SessionFingerprint }> = [];
+  const stale: Array<{ session: SessionRow; fp: SessionFingerprint }> = [];
   for (let start = 0; start < sessionList.length; start += CACHE_CHECK_CHUNK) {
     if (start > 0) await yieldToUI();
     for (const session of sessionList.slice(start, start + 50)) {
       const fp = { messages: session.message_count, parts: session.part_count };
-      const cached = loadCachedSession(session.id, fp);
+      // V2 streams text into existing rows. Row counts cannot invalidate those scores.
+      const cached = session.source === 1 ? loadCachedSession(session.id, fp) : undefined;
       if (cached) records.push(...cached);
-      else stale.push({ id: session.id, fp });
+      else stale.push({ session, fp });
     }
   }
   const cachedCount = sessionList.length - stale.length;
@@ -306,24 +251,11 @@ async function scanGlobal(
     await yieldToUI();
     const batch = stale.slice(start, start + SCAN_BATCH);
     try {
-      const batchIds = batch.map((entry) => entry.id);
-      const metas = queryMessageMetas(batchIds);
-      const texts = queryTextParts(batchIds);
-      const metasBySession = new Map<string, MessageMeta[]>();
-      for (const meta of metas) {
-        const list = metasBySession.get(meta.sessionId);
-        if (list) list.push(meta);
-        else metasBySession.set(meta.sessionId, [meta]);
-      }
-      for (const { id, fp } of batch) {
+      const samples = querySamples(batch.map((entry) => entry.session));
+      for (const { session, fp } of batch) {
         try {
-          const sessionRecords: MetricRecord[] = [];
-          for (const meta of metasBySession.get(id) ?? []) {
-            const text = texts.get(meta.id)?.join("\n").trim();
-            if (!text) continue;
-            sessionRecords.push(toRecord(toSample(meta.role, meta.providerID, meta.modelID, meta.created, text)));
-          }
-          toSave.push({ id, fp, records: sessionRecords });
+          const sessionRecords = (samples.get(session.id) ?? []).map(toRecord);
+          if (session.source === 1) toSave.push({ id: session.id, fp, records: sessionRecords });
           records.push(...sessionRecords);
         } catch {
           failures += 1;
@@ -678,22 +610,22 @@ function Chip(props: { label: string; active: boolean; th: Palette; onPick: () =
 
 // --- plugin -----------------------------------------------------------------
 
-const tui: TuiPlugin = async (api, options) => {
-  const opts = parseOptions(options);
+const setupDashboard = async (host: Host) => {
+  const opts = parseOptions(host.options);
   const [role, setRole] = createSignal<Role>("user");
   const [scope, setScope] = createSignal<Scope>(opts.scope);
   const [range, setRange] = createSignal<RangeKey>(opts.range);
   const [metric, setMetric] = createSignal<MetricKey>("total");
   const [modelFilter, setModelFilter] = createSignal<string | undefined>(undefined);
   const [state, setState] = createSignal<LoadState>({ status: "idle" });
-  let returnRoute: TuiRouteCurrent | undefined;
+  let returnRoute: ReturnType<Host["current"]> | undefined;
   let scroller: ScrollBoxRenderable | undefined;
   let loading = false;
   // Where `g` returns to when leaving the global scope. If the config itself
   // starts global, the first toggle drops to the whole project.
   let returnScope: Scope = opts.scope === "global" ? "project" : opts.scope;
 
-  const th: Palette = () => api.theme.current;
+  const th: Palette = host.theme;
 
   const sinceMs = (): number | undefined => {
     const ms = RANGES.find((r) => r.key === range())?.ms;
@@ -710,14 +642,14 @@ const tui: TuiPlugin = async (api, options) => {
     // yield the first synchronous queries delay the repaint.
     await yieldToUI();
     try {
-      const result = await scan(api, { ...opts, scope: wantedScope }, (done, total) =>
+      const result = await scan(host, { ...opts, scope: wantedScope }, (done, total) =>
         setState({ status: "loading", done, total }),
       );
       setState({ status: "ready", ...result });
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
       setState({ status: "error", message });
-      api.ui.toast({ variant: "error", title: "mouth", message, duration: 5000 });
+      host.toast({ variant: "error", title: "mouth", message, duration: 5000 });
     } finally {
       loading = false;
     }
@@ -738,18 +670,18 @@ const tui: TuiPlugin = async (api, options) => {
   };
 
   const open = () => {
-    const current = api.route.current;
+    const current = host.current();
     if (current.name !== ROUTE) returnRoute = current;
-    api.route.navigate(ROUTE);
+    host.navigate(ROUTE);
     if (state().status === "idle" || state().status === "error") void load();
   };
 
   const close = () => {
     const back = returnRoute;
     if (back && back.name !== ROUTE) {
-      api.route.navigate(back.name, "params" in back ? (back.params as Record<string, unknown>) : undefined);
+      back.restore();
     } else {
-      api.route.navigate("home");
+      host.navigate("home");
     }
   };
 
@@ -765,30 +697,24 @@ const tui: TuiPlugin = async (api, options) => {
     setMetric(list[(index + 1) % list.length].key);
   };
 
-  const pickModel = () => {
+  const pickModel = async () => {
     const value = state();
     if (value.status !== "ready") return;
     const models = modelsOf(value.records, role());
     if (models.length === 0) return;
-    const DialogSelect = api.ui.DialogSelect;
-    api.ui.dialog.setSize("medium");
-    api.ui.dialog.replace(() => (
-      <DialogSelect
-        title="Filter by model"
-        options={[
-          { title: "All models", value: "", description: "clear the filter" },
-          ...models.map((m) => ({
-            title: m.key,
-            value: m.key,
-            description: `${fmtInt(m.messages)} messages`,
-          })),
-        ]}
-        onSelect={(option) => {
-          api.ui.dialog.clear();
-          setModelFilter(option.value === "" ? undefined : option.value);
-        }}
-      />
-    ));
+    const picked = await host.select({
+      title: "Filter by model",
+      options: [
+        { title: "All models", value: "", description: "clear the filter" },
+        ...models.map((m) => ({
+          title: m.key,
+          value: m.key,
+          description: `${fmtInt(m.messages)} messages`,
+        })),
+      ],
+    });
+    if (picked === undefined) return;
+    setModelFilter(picked === "" ? undefined : picked);
   };
 
   const scrollBy = (lines: number) => {
@@ -796,50 +722,76 @@ const tui: TuiPlugin = async (api, options) => {
     scroller.scrollTop = Math.max(0, scroller.scrollTop + lines);
   };
 
-  api.keymap.registerLayer({
-    commands: [
-      {
-        name: "mouth.behavior.open",
-        title: "Mouth: behavior dashboard",
-        category: "Mouth",
-        namespace: "palette",
-        slashName: "behavior",
-        desc: "Measure profanity and friction in your sessions",
-        run() {
-          open();
-        },
-      },
-    ],
-  });
-
-  api.keymap.registerLayer({
-    mode: MODE,
-    bindings: [
-      { key: "escape", cmd: () => close(), desc: "Close dashboard" },
-      { key: "q", cmd: () => close(), desc: "Close dashboard" },
-      { key: "tab", cmd: () => pickRole(role() === "user" ? "assistant" : "user"), desc: "Toggle you / model" },
-      { key: "m", cmd: () => cycleMetric(), desc: "Cycle trend metric" },
-      { key: MODEL_FILTER_KEY, cmd: () => pickModel(), desc: "Filter by model" },
-      { key: "g", cmd: () => toggleGlobal(), desc: "Toggle global scope" },
-      { key: "r", cmd: () => void load(), desc: "Rescan sessions" },
-      ...RANGES.map((r, index) => ({
-        key: String(index + 1),
-        cmd: () => setRange(r.key),
-        desc: `Range ${r.label}`,
-      })),
-      { key: "j", cmd: () => scrollBy(2), desc: "Scroll down" },
-      { key: "down", cmd: () => scrollBy(2), desc: "Scroll down" },
-      { key: "k", cmd: () => scrollBy(-2), desc: "Scroll up" },
-      { key: "up", cmd: () => scrollBy(-2), desc: "Scroll up" },
-    ],
-  });
-
-  api.route.register([
+  const dashboardCommands = [
     {
-      name: ROUTE,
-      render: () => {
-        const popMode = api.mode.push(MODE);
-        onCleanup(popMode);
+      id: "mouth.behavior.close",
+      title: "Close dashboard",
+      group: "Mouth",
+      bind: "escape,q",
+      run: () => close(),
+    },
+    {
+      id: "mouth.behavior.role",
+      title: "Toggle you / model",
+      group: "Mouth",
+      bind: "tab",
+      run: () => pickRole(role() === "user" ? "assistant" : "user"),
+    },
+    {
+      id: "mouth.behavior.metric",
+      title: "Cycle trend metric",
+      group: "Mouth",
+      bind: "m",
+      run: () => cycleMetric(),
+    },
+    {
+      id: "mouth.behavior.model",
+      title: "Filter by model",
+      group: "Mouth",
+      bind: MODEL_FILTER_KEY,
+      run: () => void pickModel(),
+    },
+    {
+      id: "mouth.behavior.scope",
+      title: "Toggle global scope",
+      group: "Mouth",
+      bind: "g",
+      run: () => toggleGlobal(),
+    },
+    {
+      id: "mouth.behavior.rescan",
+      title: "Rescan sessions",
+      group: "Mouth",
+      bind: "r",
+      run: () => void load(),
+    },
+    ...RANGES.map((r, index) => ({
+      id: `mouth.behavior.range.${r.key}`,
+      title: `Range ${r.label}`,
+      group: "Mouth",
+      bind: String(index + 1),
+      run: () => setRange(r.key),
+    })),
+    {
+      id: "mouth.behavior.scroll.down",
+      title: "Scroll down",
+      group: "Mouth",
+      bind: "j,down",
+      run: () => scrollBy(2),
+    },
+    {
+      id: "mouth.behavior.scroll.up",
+      title: "Scroll up",
+      group: "Mouth",
+      bind: "k,up",
+      run: () => scrollBy(-2),
+    },
+  ];
+  const unregisterCommands = host.commands(ROUTE, MODE, open, dashboardCommands);
+
+  const unregisterRoute = host.route(ROUTE, () => {
+      const popMode = host.pushMode(MODE);
+      onCleanup(popMode);
         onCleanup(() => {
           scroller = undefined;
         });
@@ -999,14 +951,16 @@ const tui: TuiPlugin = async (api, options) => {
             </Switch>
           </box>
         );
-      },
-    },
-  ]);
+  });
+
+  return () => {
+    unregisterCommands();
+    unregisterRoute();
+  };
 };
 
-const plugin: TuiPluginModule & { id: string } = {
+export default {
   id: "opencode-mouth",
-  tui,
-};
-
-export default plugin;
+  tui: async (api, options) => { await setupDashboard(v1Host(api, options)); },
+  setup: (context) => setupDashboard(v2Host(context)),
+} satisfies TuiPluginModule & Plugin.Definition;

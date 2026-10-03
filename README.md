@@ -19,7 +19,8 @@ Now it does, and it points both ways.
 
 ### From npm
 
-Add the package to the `plugin` list in `~/.config/opencode/tui.jsonc`:
+Use the same package on OpenCode v1 and v2.
+On v1, add it to `plugin` in `~/.config/opencode/tui.jsonc`:
 
 ```jsonc
 {
@@ -27,11 +28,19 @@ Add the package to the `plugin` list in `~/.config/opencode/tui.jsonc`:
 }
 ```
 
+On v2, add it to `plugins` in `~/.config/opencode/cli.json`:
+
+```json
+{
+  "plugins": ["opencode-mouth"]
+}
+```
+
 Restart OpenCode and run `/behavior`.
 OpenCode installs the package from npm on first start and caches it.
 
 A bare package name resolves to the latest version once and stays on it.
-To update, pin a version instead (for example `"opencode-mouth@1.2.0"`), or delete the cached copy under `~/.cache/opencode/packages/` and restart OpenCode.
+To update, pin the package version you want and restart OpenCode.
 
 ### With the installer
 
@@ -40,6 +49,8 @@ curl -fsSL https://raw.githubusercontent.com/pixincreate/opencode-mouth/master/s
 ```
 
 Working on the plugin itself? Use `--clone` to build from source, or see [docs/development.md](docs/development.md).
+The installer detects `opencode --version`.
+Pass `--opencode-version 1` or `--opencode-version 2` to select the host explicitly.
 
 ## Usage
 
@@ -57,7 +68,9 @@ Run `/behavior`, then drive it from the keyboard:
 | `esc` / `q` | close                                    |
 
 By default the dashboard reads the current project.
-`g` flips it to the **global** scope — every session across all projects, read straight from OpenCode's database, with a local cache keeping rescans fast.
+`g` switches to **global** scope and reads root sessions across projects from OpenCode's database.
+V1 scans reuse cached metrics.
+V2 scans reread message text because streaming updates can change existing rows.
 
 Curious what the numbers mean or want to tune it? See [docs/how-it-works.md](docs/how-it-works.md) and [docs/configuration.md](docs/configuration.md).
 
