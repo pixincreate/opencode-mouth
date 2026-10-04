@@ -73,8 +73,8 @@ try {
     const { saveCachedSessions, loadCachedSession, pruneSessionCache } = await import(${JSON.stringify(new URL("../src/cache.ts", import.meta.url).href)});
     const result = [...querySamples(queryGlobalSessions(10))];
     const fp = { messages: 1, parts: 1 };
-    saveCachedSessions([{ id: "node-cache", fp, records: [] }]);
-    assert.deepEqual(loadCachedSession("node-cache", fp), []);
+    saveCachedSessions([{ id: "node-cache", fp, records: [], prose: [] }]);
+    assert.deepEqual(loadCachedSession("node-cache", fp), { records: [], prose: [] });
     pruneSessionCache([]);
     assert.equal(loadCachedSession("node-cache", fp), undefined);
     console.log(JSON.stringify(result));
@@ -85,19 +85,19 @@ try {
   assert.deepEqual(db.serialize(), beforeReads, "reading sessions must not mutate the source database");
 
   const fp = { messages: 1, parts: 1 };
-  const entries = Array.from({ length: 601 }, (_, i) => ({ id: String(i), fp, records: [toRecord(legacy[0]!)] }));
+  const entries = Array.from({ length: 601 }, (_, i) => ({ id: String(i), fp, records: [toRecord(legacy[0]!)], prose: [] }));
   saveCachedSessions(entries);
-  assert.deepEqual(loadCachedSession("0", fp), entries[0]!.records);
+  assert.deepEqual(loadCachedSession("0", fp), { records: entries[0]!.records, prose: [] });
   assert.equal(loadCachedSession("0", { messages: 2, parts: 1 }), undefined);
   assert.equal(loadCachedSession("0", { messages: 1, parts: 2 }), undefined);
   const otherDatabase = execFileSync(process.execPath, ["--eval", `const { loadCachedSession } = await import(${JSON.stringify(new URL("../src/cache.ts", import.meta.url).href)}); console.log(loadCachedSession("0", { messages: 1, parts: 1 }) === undefined);`], {
     encoding: "utf8", env: { ...process.env, OPENCODE_DB: join(root, "other.db") },
   });
   assert.equal(otherDatabase.trim(), "true", "a different database must not reuse cached session scores");
-  saveCachedSessions([{ id: "stale", fp, records: entries[0]!.records }]);
+  saveCachedSessions([{ id: "stale", fp, records: entries[0]!.records, prose: [] }]);
   pruneSessionCache(entries.map((entry) => entry.id));
   assert.equal(loadCachedSession("stale", fp), undefined);
-  assert.deepEqual(loadCachedSession("600", fp), entries[600]!.records);
+  assert.deepEqual(loadCachedSession("600", fp), { records: entries[600]!.records, prose: [] });
   pruneSessionCache([]);
   assert.equal(loadCachedSession("600", fp), undefined);
   console.log("Database contracts passed: v1/v2 scores, roots, limits, empty transcripts, unknown models, read-only behavior, mixed schemas, model switches, text updates, cache identity, invalidation, and pruning.");
