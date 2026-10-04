@@ -12,31 +12,36 @@ import { v1Host, v2Host, type Host } from "./host.ts";
 import type { ScrollBoxRenderable } from "@opentui/core";
 import { useTerminalDimensions } from "@opentui/solid";
 import { For, Match, Show, Switch, createEffect, createMemo, createSignal, onCleanup } from "solid-js";
+import { buildRoleStats, frictionOf, hitsOf, modelsOf, type ModelTotals, type Role, type RoleStats, type Totals } from "./aggregate.ts";
+import { scan, yieldToUI, type LoadState } from "./scan.ts";
+import { setupFrustration } from "./frustration-tui.tsx";
 import {
-  buildRoleStats,
-  dayKey,
-  frictionOf,
-  hitsOf,
-  modelsOf,
-  toRecord,
-  type DayTotals,
-  type MetricRecord,
-  type ModelTotals,
-  type Role,
-  type RoleStats,
-  type Totals,
-} from "./aggregate.ts";
-import { queryGlobalSessions, querySamples } from "./db.ts";
-import type { SessionRow, SessionFingerprint } from "./db.ts";
-import { loadCachedSession, pruneSessionCache, saveCachedSessions, type CacheEntry } from "./cache.ts";
-import type { Palette as ThemePalette } from "./theme.ts";
+  BAR_WIDTH,
+  type Card,
+  Cards,
+  Chip,
+  Panel,
+  RANGES,
+  bar,
+  buildChartBuckets,
+  clip,
+  clockLabel,
+  fmtInt,
+  fmtRate,
+  modelLabel,
+  parseOptions,
+  perHundred,
+  rangeSince,
+  shortenPath,
+  type ColorToken,
+  type Palette,
+  type RangeKey,
+  type Scope,
+} from "./ui.tsx";
 
 const ROUTE = "mouth-behavior";
 const MODE = "mouth.behavior";
-const DEFAULT_SESSION_LIMIT = 200;
 const MODEL_FILTER_KEY = "f";
-/** Cache-check loop granularity: sessions per yield while matching fingerprints. */
-const CACHE_CHECK_CHUNK = 50;
 /** Body column width: terminal minus root padding and the scrollbar gutter. */
 const BODY_INSET = 9;
 /** Panel borders + inner padding, on top of BODY_INSET, for text width math. */
@@ -44,25 +49,6 @@ const PANEL_CHROME = 4;
 /** Scrollbar thumb fix: apply quickly, then again once layout settles. */
 const THUMB_FIX_DELAY_MS = 100;
 const THUMB_FIX_SETTLE_MS = 600;
-const FETCH_CONCURRENCY = 6;
-const BAR_WIDTH = 22;
-const MAX_CHART_BARS = 15;
-
-type Palette = () => ThemePalette;
-
-type ColorToken = "primary" | "accent" | "error" | "warning" | "info" | "success" | "text" | "textMuted";
-
-// --- options ----------------------------------------------------------------
-
-const RANGES = [
-  { key: "24h", label: "24h", ms: 24 * 60 * 60 * 1000 },
-  { key: "7d", label: "7d", ms: 7 * 24 * 60 * 60 * 1000 },
-  { key: "30d", label: "30d", ms: 30 * 24 * 60 * 60 * 1000 },
-  { key: "90d", label: "90d", ms: 90 * 24 * 60 * 60 * 1000 },
-  { key: "all", label: "all", ms: undefined },
-] as const;
-
-type RangeKey = (typeof RANGES)[number]["key"];
 
 const METRICS = [
   { key: "total", label: "All signals", roles: ["user", "assistant"] },
@@ -85,279 +71,9 @@ const metricValue = (totals: Totals, metric: MetricKey): number => {
 
 const metricsForRole = (role: Role) => METRICS.filter((m) => (m.roles as readonly Role[]).includes(role));
 
-interface MouthOptions {
-  /** Number of most recent sessions to scan. */
-  sessionLimit: number;
-  /** Session scope: the whole project, only the current directory, or all sessions globally. */
-  scope: "project" | "directory" | "global";
-  /** Initial time range filter. */
-  range: RangeKey;
-}
-
-type Scope = MouthOptions["scope"];
-
-const parseOptions = (options: unknown): MouthOptions => {
-  const record = options && typeof options === "object" ? (options as Record<string, unknown>) : {};
-  const int = (value: unknown, fallback: number) => {
-    const n = Number(value);
-    return Number.isInteger(n) && n > 0 ? n : fallback;
-  };
-  const range = RANGES.find((r) => r.key === record.range)?.key ?? "30d";
-  return {
-    sessionLimit: int(record.sessionLimit, DEFAULT_SESSION_LIMIT),
-    scope: record.scope === "directory" || record.scope === "global" ? record.scope : "project",
-    range,
-  };
-};
-
-// --- formatting -------------------------------------------------------------
-
-const fmtInt = (n: number): string => n.toLocaleString("en-US");
-
-const fmtRate = (hits: number, messages: number): string => {
-  if (messages <= 0) return "-";
-  const pct = (hits / messages) * 100;
-  if (pct === 0) return "0%";
-  if (pct < 1) return `${pct.toFixed(1)}%`;
-  return `${pct.toFixed(0)}%`;
-};
-
-const perHundred = (hits: number, messages: number): string | undefined => {
-  if (messages <= 0 || hits === 0) return undefined;
-  return `${((hits / messages) * 100).toFixed(1)} per 100 msgs`;
-};
-
-const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
-
-const dayLabel = (day: string): string => {
-  const [, month, date] = day.split("-");
-  const index = Number(month) - 1;
-  return `${MONTHS[index] ?? month} ${Number(date)}`;
-};
-
-const clockLabel = (ts: number): string => {
-  const d = new Date(ts);
-  return `${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}`;
-};
-
-const modelLabel = (model: ModelTotals): string => `${model.providerID}/${model.modelID}`;
-
-const clip = (text: string, width: number): string =>
-  text.length <= width ? text : `${text.slice(0, Math.max(0, width - 1))}…`;
-
-/** Replace the home prefix so scanned paths stay short in the header. */
-const shortenPath = (path: string): string => {
-  const home = process.env.HOME;
-  return home && path.startsWith(`${home}/`) ? `~${path.slice(home.length)}` : path;
-};
-
-const bar = (ratio: number, width: number): { fill: string; rest: string } => {
-  const clamped = Math.max(0, Math.min(1, ratio));
-  const cells = clamped > 0 ? Math.max(1, Math.round(clamped * width)) : 0;
-  return { fill: "█".repeat(cells), rest: "░".repeat(width - cells) };
-};
-
-// --- data loading -----------------------------------------------------------
-
-async function mapPool<T, R>(items: readonly T[], limit: number, fn: (item: T) => Promise<R>): Promise<R[]> {
-  const results: R[] = new Array(items.length);
-  let next = 0;
-  const workers = Array.from({ length: Math.min(limit, items.length) }, async () => {
-    while (next < items.length) {
-      const index = next++;
-      results[index] = await fn(items[index]);
-    }
-  });
-  await Promise.all(workers);
-  return results;
-}
-
-interface ScanResult {
-  records: MetricRecord[];
-  sessions: number;
-  failures: number;
-  loadedAt: number;
-  /** Directory or project the scan covered; absent for global database scans. */
-  target?: string;
-}
-
-async function scan(
-  host: Host,
-  opts: MouthOptions,
-  onProgress: (done: number, total: number) => void,
-): Promise<ScanResult> {
-  // Global scope: read directly from the SQLite database
-  if (opts.scope === "global") {
-    return scanGlobal(opts, onProgress);
-  }
-
-  // Project/directory scope: use the connected server
-  const { target, list } = await host.sessions(opts);
-  onProgress(0, list.length);
-
-  const records: MetricRecord[] = [];
-  let done = 0;
-  let failures = 0;
-
-  await mapPool(list, FETCH_CONCURRENCY, async (session) => {
-    try {
-      records.push(...(await session.samples()).map(toRecord));
-    } catch {
-      failures += 1;
-    }
-    done += 1;
-    onProgress(done, list.length);
-  });
-
-  return { records, sessions: list.length, failures, loadedAt: Date.now(), target };
-}
-
-/**
- * Sessions processed between progress paints. Small enough that the TUI
- * repaints the progress bar between batches, large enough to amortize the queries.
- */
-const SCAN_BATCH = 25;
-
-/** Let the TUI render before the next synchronous batch of work. */
-const yieldToUI = (): Promise<void> => new Promise((resolve) => setTimeout(resolve, 0));
-
-/**
- * Scan all sessions from the SQLite database directly.
- * Used when scope is "global".
- *
- * Each session's metrics are cached under its row-count fingerprint, so
- * unchanged sessions are neither re-read nor re-scored; only the rest are
- * fetched in batches (see db.ts for how the queries keep the huge JSON blobs
- * of message/part rows out of the hot path).
- */
-async function scanGlobal(
-  opts: MouthOptions,
-  onProgress: (done: number, total: number) => void,
-): Promise<ScanResult> {
-  await yieldToUI();
-  const sessionList = queryGlobalSessions(opts.sessionLimit);
-  onProgress(0, sessionList.length);
-
-  const records: MetricRecord[] = [];
-  const toSave: CacheEntry[] = [];
-  const stale: Array<{ session: SessionRow; fp: SessionFingerprint }> = [];
-  for (let start = 0; start < sessionList.length; start += CACHE_CHECK_CHUNK) {
-    if (start > 0) await yieldToUI();
-    for (const session of sessionList.slice(start, start + 50)) {
-      const fp = { messages: session.message_count, parts: session.part_count };
-      // V2 streams text into existing rows. Row counts cannot invalidate those scores.
-      const cached = session.source === 1 ? loadCachedSession(session.id, fp) : undefined;
-      if (cached) records.push(...cached);
-      else stale.push({ session, fp });
-    }
-  }
-  const cachedCount = sessionList.length - stale.length;
-  onProgress(cachedCount, sessionList.length);
-
-  let failures = 0;
-  for (let start = 0; start < stale.length; start += SCAN_BATCH) {
-    await yieldToUI();
-    const batch = stale.slice(start, start + SCAN_BATCH);
-    try {
-      const samples = querySamples(batch.map((entry) => entry.session));
-      for (const { session, fp } of batch) {
-        try {
-          const sessionRecords = (samples.get(session.id) ?? []).map(toRecord);
-          if (session.source === 1) toSave.push({ id: session.id, fp, records: sessionRecords });
-          records.push(...sessionRecords);
-        } catch {
-          failures += 1;
-        }
-      }
-    } catch {
-      failures += batch.length;
-    }
-    onProgress(cachedCount + Math.min(start + SCAN_BATCH, stale.length), sessionList.length);
-  }
-  saveCachedSessions(toSave);
-  pruneSessionCache(sessionList.map((session) => session.id));
-
-  return { records, sessions: sessionList.length, failures, loadedAt: Date.now() };
-}
-
-type LoadState =
-  | { status: "idle" }
-  | { status: "loading"; done: number; total: number }
-  | ({ status: "ready" } & ScanResult)
-  | { status: "error"; message: string };
-
-// --- trend chart buckets ----------------------------------------------------
-
-interface ChartBucket {
-  label: string;
-  totals: Totals;
-}
-
-/**
- * Bucket per-day totals into at most `maxBars` bars spanning the filtered
- * range. 24h/7d ranges get one bar per day; wider ranges group days.
- */
-export function buildChartBuckets(
-  byDay: DayTotals[],
-  sinceMs: number | undefined,
-  now: number,
-  maxBars = MAX_CHART_BARS,
-): { buckets: ChartBucket[]; daysPerBucket: number } {
-  const dayMs = 24 * 60 * 60 * 1000;
-  let startDay: string;
-  if (sinceMs !== undefined) {
-    startDay = dayKey(sinceMs);
-  } else if (byDay.length > 0) {
-    startDay = byDay[0].day;
-  } else {
-    startDay = dayKey(now);
-  }
-  const start = new Date(`${startDay}T00:00:00`).getTime();
-  const spanDays = Math.max(1, Math.round((now - start) / dayMs) + 1);
-  const daysPerBucket = Math.max(1, Math.ceil(spanDays / maxBars));
-  const bucketCount = Math.ceil(spanDays / daysPerBucket);
-
-  const byKey = new Map(byDay.map((d) => [d.day, d]));
-  const buckets: ChartBucket[] = [];
-  for (let i = 0; i < bucketCount; i++) {
-    const bucketStart = start + i * daysPerBucket * dayMs;
-    const totals: Totals = {
-      messages: 0,
-      chars: 0,
-      words: 0,
-      yelling: 0,
-      profanity: 0,
-      anguish: 0,
-      negation: 0,
-      repetition: 0,
-      blame: 0,
-    };
-    for (let d = 0; d < daysPerBucket; d++) {
-      const day = byKey.get(dayKey(bucketStart + d * dayMs));
-      if (!day) continue;
-      totals.messages += day.messages;
-      totals.chars += day.chars;
-      totals.words += day.words;
-      totals.yelling += day.yelling;
-      totals.profanity += day.profanity;
-      totals.anguish += day.anguish;
-      totals.negation += day.negation;
-      totals.repetition += day.repetition;
-      totals.blame += day.blame;
-    }
-    buckets.push({ label: dayLabel(dayKey(bucketStart)), totals });
-  }
-  return { buckets, daysPerBucket };
-}
+// --- dashboard --------------------------------------------------------------
 
 // --- dashboard components ---------------------------------------------------
-
-interface Card {
-  label: string;
-  value: string;
-  sub?: string;
-  color?: ColorToken;
-}
 
 const roleCards = (role: Role, stats: RoleStats): Card[] => {
   const t = stats.totals;
@@ -396,54 +112,6 @@ const roleCards = (role: Role, stats: RoleStats): Card[] => {
   return cards;
 };
 
-function Cards(props: { cards: Card[]; th: Palette }) {
-  return (
-    <box flexDirection="row" flexWrap="wrap" gap={1}>
-      <For each={props.cards}>
-        {(card) => (
-          <box
-            border
-            borderColor={props.th().border}
-            flexGrow={1}
-            flexBasis={18}
-            paddingLeft={1}
-            paddingRight={1}
-            flexDirection="column"
-          >
-            <text fg={props.th().textMuted}>{card.label}</text>
-            <text fg={card.color ? props.th()[card.color] : props.th().text}>
-              <b>{card.value}</b>
-            </text>
-            <text fg={props.th().textMuted}>{card.sub ?? " "}</text>
-          </box>
-        )}
-      </For>
-    </box>
-  );
-}
-
-function Panel(props: { title: string; subtitle?: string; th: Palette; children?: unknown }) {
-  return (
-    <box
-      border
-      borderColor={props.th().border}
-      flexDirection="column"
-      paddingLeft={1}
-      paddingRight={1}
-      flexShrink={0}
-    >
-      <box flexDirection="row" gap={2}>
-        <text fg={props.th().text}>
-          <b>{props.title}</b>
-        </text>
-        <Show when={props.subtitle}>
-          <text fg={props.th().textMuted}>{props.subtitle}</text>
-        </Show>
-      </box>
-      {props.children as never}
-    </box>
-  );
-}
 
 function TrendChart(props: {
   stats: RoleStats;
@@ -603,18 +271,6 @@ function TopWords(props: { stats: RoleStats; th: Palette }) {
   );
 }
 
-function Chip(props: { label: string; active: boolean; th: Palette; onPick: () => void }) {
-  return (
-    <box
-      onMouseUp={() => props.onPick()}
-      backgroundColor={props.active ? props.th().accent : props.th().backgroundElement}
-      paddingLeft={1}
-      paddingRight={1}
-    >
-      <text fg={props.active ? props.th().selectedListItemText : props.th().text}>{props.label}</text>
-    </box>
-  );
-}
 
 // --- plugin -----------------------------------------------------------------
 
@@ -635,10 +291,7 @@ const setupDashboard = async (host: Host) => {
 
   const th: Palette = host.theme;
 
-  const sinceMs = (): number | undefined => {
-    const ms = RANGES.find((r) => r.key === range())?.ms;
-    return ms === undefined ? undefined : Date.now() - ms;
-  };
+  const sinceMs = (): number | undefined => rangeSince(range());
 
   const load = async () => {
     if (loading) return;
@@ -795,7 +448,12 @@ const setupDashboard = async (host: Host) => {
       run: () => scrollBy(-2),
     },
   ];
-  const unregisterCommands = host.commands(ROUTE, MODE, open, dashboardCommands);
+  const unregisterCommands = host.commands(ROUTE, MODE, open, dashboardCommands, {
+    id: "mouth.behavior.open",
+    title: "Mouth: behavior dashboard",
+    description: "Measure profanity and friction in your sessions",
+    slash: "behavior",
+  });
 
   const unregisterRoute = host.route(ROUTE, () => {
       const popMode = host.pushMode(MODE);
@@ -970,6 +628,12 @@ const setupDashboard = async (host: Host) => {
 
 export default {
   id: "opencode-mouth",
-  tui: async (api, options) => { await setupDashboard(v1Host(api, options)); },
-  setup: (context) => setupDashboard(v2Host(context)),
+  tui: async (api, options) => {
+    const host = v1Host(api, options);
+    await Promise.all([setupDashboard(host), setupFrustration(host)]);
+  },
+  setup: async (context) => {
+    const host = v2Host(context);
+    await Promise.all([setupDashboard(host), setupFrustration(host)]);
+  },
 } satisfies TuiPluginModule & Plugin.Definition;

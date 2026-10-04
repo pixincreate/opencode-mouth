@@ -7,7 +7,8 @@
  * user changes the time range or model filter without rescanning.
  */
 
-import { analyzeAssistantMessage, analyzeUserMessage, type BehaviorMetrics } from "./metrics.ts";
+import { analyzeAssistantMessage, analyzeUserMessage, judgeProse, type BehaviorMetrics } from "./metrics.ts";
+import { proseHash, type PendingProse } from "./judge.ts";
 
 export type Role = "user" | "assistant";
 
@@ -26,6 +27,12 @@ export interface MetricRecord {
   modelID: string;
   created: number;
   metrics: BehaviorMetrics;
+  /**
+   * Hash of the judge-facing prose for user messages that have one; absent
+   * when the message is all code/markup. Lets frustration views classify
+   * cached records without holding their prose.
+   */
+  proseHash?: string;
 }
 
 export interface Totals {
@@ -102,16 +109,29 @@ export function dayKey(created: number): string {
 export const modelKey = (record: { providerID: string; modelID: string }): string =>
   `${record.providerID}/${record.modelID}`;
 
+/**
+ * Prose entry for a user message: the stripped, capped text a judge
+ * classifies, plus its hash. Undefined when the message has no prose (all
+ * code/markup), which upstream also excludes from frustration counts.
+ */
+export function proseEntryOf(sample: MessageSample): PendingProse | undefined {
+  if (sample.role !== "user") return undefined;
+  const prose = judgeProse(sample.text);
+  return prose ? { hash: proseHash(prose), prose } : undefined;
+}
+
 /** Analyze one message into a metric record. */
 export function toRecord(sample: MessageSample): MetricRecord {
   const metrics =
     sample.role === "user" ? analyzeUserMessage(sample.text) : analyzeAssistantMessage(sample.text);
+  const prose = proseEntryOf(sample);
   return {
     role: sample.role,
     providerID: sample.providerID,
     modelID: sample.modelID,
     created: sample.created,
     metrics,
+    ...(prose ? { proseHash: prose.hash } : {}),
   };
 }
 

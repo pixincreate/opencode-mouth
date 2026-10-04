@@ -4,6 +4,17 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+### Added
+
+- Frustration dashboard: `/frustration` reports how often user messages sound annoyed, aimed at the assistant, or angry, per model version.
+- LLM judge: a chosen model rates each user message; verdicts are cached by prose hash and unjudged messages fall back to regex signals.
+- Judge run controls: model picker, cost estimate, progress, cancel, and a circuit breaker after repeated failures.
+- Local verdict and prose store in Mouth's state directory (`judge/verdicts.db`).
+
+### Changed
+
+- Pinned upstream references to `dfbf3cc`; track `FrustrationRoute.tsx` instead of the removed `BehaviorRoute.tsx`.
+
 ## [1.1.0] - 2026-09-05
 
 ### Added

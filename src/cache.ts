@@ -15,6 +15,7 @@ import { openDatabase, transaction, type Connection } from "./sqlite.ts";
 import { mkdirSync } from "node:fs";
 import { join } from "node:path";
 import type { MetricRecord } from "./aggregate.ts";
+import type { PendingProse } from "./judge.ts";
 import { DB_PATH, type SessionFingerprint } from "./db.ts";
 
 const STATE_DIR = process.env.MOUTH_INSTALL_STATE_DIR ?? `${process.env.HOME}/.local/share/opencode-mouth`;
@@ -31,9 +32,16 @@ function openCache(): Connection | null {
       `CREATE TABLE IF NOT EXISTS session_cache (
          session_id  TEXT PRIMARY KEY,
          fingerprint TEXT NOT NULL,
-         records     TEXT NOT NULL
+         records     TEXT NOT NULL,
+         prose       TEXT
        )`,
     );
+    // Databases written before the frustration dashboard lack the prose column.
+    try {
+      db.exec(`ALTER TABLE session_cache ADD COLUMN prose TEXT`);
+    } catch {
+      /* column already exists */
+    }
     return db;
   } catch {
     return null;
@@ -45,20 +53,29 @@ function openCache(): Connection | null {
  * were produced by whatever version saved them, and the key is the only
  * invalidation signal for sessions whose row counts did not change.
  */
-const CACHE_VERSION = "v3";
+const CACHE_VERSION = "v4";
 
 const key = (fp: SessionFingerprint): string => `${CACHE_VERSION}:${DB_PATH}:${fp.messages}:${fp.parts}`;
 
-/** Load cached records for a session whose fingerprint still matches. */
-export function loadCachedSession(id: string, fp: SessionFingerprint): MetricRecord[] | undefined {
+export interface CachedSession {
+  records: MetricRecord[];
+  /** Stripped user prose, kept so the judge can use cached sessions. */
+  prose: PendingProse[];
+}
+
+/** Load cached records and prose for a session whose fingerprint still matches. */
+export function loadCachedSession(id: string, fp: SessionFingerprint): CachedSession | undefined {
   const conn = openCache();
   if (!conn) return undefined;
   try {
     const row = conn
-      .prepare(`SELECT fingerprint, records FROM session_cache WHERE session_id = ?`)
-      .get(id) as { fingerprint: string; records: string } | null;
+      .prepare(`SELECT fingerprint, records, prose FROM session_cache WHERE session_id = ?`)
+      .get(id) as { fingerprint: string; records: string; prose: string | null } | null;
     if (!row || row.fingerprint !== key(fp)) return undefined;
-    return JSON.parse(row.records) as MetricRecord[];
+    return {
+      records: JSON.parse(row.records) as MetricRecord[],
+      prose: row.prose ? (JSON.parse(row.prose) as PendingProse[]) : [],
+    };
   } catch {
     return undefined;
   }
@@ -68,19 +85,21 @@ export interface CacheEntry {
   id: string;
   fp: SessionFingerprint;
   records: readonly MetricRecord[];
+  prose: readonly PendingProse[];
 }
 
-/** Store a scan's session records in one transaction. Failures are ignored. */
+/** Store a scan's session records and prose in one transaction. Failures are ignored. */
 export function saveCachedSessions(entries: readonly CacheEntry[]): void {
   if (entries.length === 0) return;
   const conn = openCache();
   if (!conn) return;
   try {
     const save = conn.prepare(
-      `INSERT OR REPLACE INTO session_cache (session_id, fingerprint, records) VALUES (?, ?, ?)`,
+      `INSERT OR REPLACE INTO session_cache (session_id, fingerprint, records, prose) VALUES (?, ?, ?, ?)`,
     );
     transaction(conn, () => {
-      for (const entry of entries) save.run(entry.id, key(entry.fp), JSON.stringify(entry.records));
+      for (const entry of entries)
+        save.run(entry.id, key(entry.fp), JSON.stringify(entry.records), JSON.stringify(entry.prose));
     });
   } catch {
     /* cache is best-effort */

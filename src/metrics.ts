@@ -540,6 +540,19 @@ export function stripStructuredContent(text: string): string {
     .replace(ANSI_ESCAPE_RE, "");
 }
 
+/** Cap on the judge-facing prose stored per user message; longer prose is truncated. */
+export const PROSE_MAX_CHARS = 4000;
+
+/**
+ * Prose body a judge classifies: structured content stripped, whitespace
+ * trimmed, capped at {@link PROSE_MAX_CHARS} characters. Ported verbatim from
+ * oh-my-pi so cached verdicts keep the same meaning.
+ */
+export function judgeProse(text: string): string {
+  const prose = stripStructuredContent(text.trim()).trim();
+  return prose.length > PROSE_MAX_CHARS ? prose.slice(0, PROSE_MAX_CHARS) : prose;
+}
+
 function countNonEmptyLines(text: string): number {
   let count = 0;
   for (const line of text.split("\n")) {

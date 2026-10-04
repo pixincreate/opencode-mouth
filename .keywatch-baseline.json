@@ -1524,14 +1524,28 @@
       "file_path": "upstream.json",
       "line_number": 5,
       "finding_type": "Random String",
-      "matched_content_hash": "9dbbb1d405c80592936b56368e8db5789a407d95883648e21fa3b8f5d3fe045a",
+      "matched_content_hash": "f7039e5c1fda2a1edf7123ee597b9c14706b3c4e52c6109762098c1f83984563",
       "plugin_name": "RandomString"
     },
     {
       "file_path": "upstream.json",
       "line_number": 6,
       "finding_type": "Random String",
-      "matched_content_hash": "5bc061e339d1ff9ca15459ea61ca2dbc92dbc0a0a9ff595c4cdb73dc9b02bc3f",
+      "matched_content_hash": "f7039e5c1fda2a1edf7123ee597b9c14706b3c4e52c6109762098c1f83984563",
+      "plugin_name": "RandomString"
+    },
+    {
+      "file_path": "test/judge.test.ts",
+      "line_number": 16,
+      "finding_type": "Random String",
+      "matched_content_hash": "2917f47cdbcd15a642928b2ef939064575a380f398dd0255737d9678d3ad4a09",
+      "plugin_name": "RandomString"
+    },
+    {
+      "file_path": "test/judge.test.ts",
+      "line_number": 17,
+      "finding_type": "Random String",
+      "matched_content_hash": "c46acc2b11ff9fda366fcfa1966214d766af72267e8283350d2776a80101efde",
       "plugin_name": "RandomString"
     },
     {
