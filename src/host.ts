@@ -2,7 +2,7 @@ import type { TuiPluginApi, TuiToast } from "@opencode-ai/plugin/tui";
 import type { Context } from "@opencode/plugin/tui/context";
 import type { JSX } from "@opentui/solid";
 import type { SessionMessageInfo } from "@opencode/client";
-import type { MessageSample } from "./aggregate.ts";
+import type { MessageSample } from "./messages.ts";
 import { JUDGE_RESPONSE_SCHEMA, JUDGE_SYSTEM_PROMPT, type JudgeModel, type JudgeRequest } from "./judge.ts";
 import { palette, type Palette } from "./theme.ts";
 import { v2Samples } from "./messages.ts";
@@ -31,7 +31,7 @@ export interface PaletteCommand {
 export interface Host {
   options: unknown;
   theme(): Palette;
-  sessions(options: ScopeOptions): Promise<{ target: string; list: Array<{ samples(): Promise<MessageSample[]> }> }>;
+  sessions(options: ScopeOptions): Promise<{ target: string; list: Array<{ id: string; samples(): Promise<MessageSample[]> }> }>;
   toast(input: TuiToast): void;
   select(input: { title: string; options: Array<{ title: string; value: string; description: string }> }): Promise<string | undefined>;
   current(): { name?: string; restore(): void };
@@ -60,6 +60,7 @@ export function v1Host(api: TuiPluginApi, options: unknown): Host {
       return {
         target: api.state.path.directory,
         list: (response.data ?? []).map((session) => ({
+          id: session.id,
           async samples() {
             const response = await api.client.session.messages({ sessionID: session.id }, { throwOnError: true });
             return (response.data ?? []).flatMap(({ info, parts }) => {
@@ -67,7 +68,7 @@ export function v1Host(api: TuiPluginApi, options: unknown): Host {
                 .map((part) => part.type === "text" ? part.text : "").join("\n");
               if (!text.trim()) return [];
               const model = info.role === "user" ? info.model : { providerID: info.providerID, modelID: info.modelID };
-              return [{ role: info.role, providerID: model?.providerID ?? "unknown", modelID: model?.modelID ?? "unknown", created: info.time.created, text }];
+              return [{ messageId: info.id, role: info.role, providerID: model?.providerID ?? "unknown", modelID: model?.modelID ?? "unknown", created: info.time.created, text }];
             });
           },
         })),
@@ -154,6 +155,7 @@ export function v2Host(context: Context): Host {
       return {
         target: directory,
         list: (response.data ?? []).map((session) => ({
+          id: session.id,
           async samples() {
             const messages: SessionMessageInfo[] = [];
             let cursor: string | undefined;

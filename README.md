@@ -4,11 +4,11 @@ Measure what comes out of your model's mouth (and yours).
 
 ## Introduction
 
-Mouth adds `/behavior` and `/frustration` commands to OpenCode.
-It scans your sessions and shows a dashboard of profanity and friction: how often you yell at your model, swear at it, blame it — and what the model says back.
-The frustration dashboard adds a judge: a model reads your prompts and rates how annoyed they sound, with cached verdicts and a regex fallback.
+Mouth adds a `/frustration` command to OpenCode.
+It scans your sessions and shows how annoyed your messages sound, per model version: annoyed, at assistant, or angry.
+A judge model reads your prompts and rates them; cached verdicts replace the regex fallback as they accumulate.
 
-Ported from the Behavior feature in [oh-my-pi](https://github.com/can1357/oh-my-pi).
+Ported from the stats feature in [oh-my-pi](https://github.com/can1357/oh-my-pi).
 
 ## Lore
 
@@ -37,7 +37,7 @@ On v2, add it to `plugins` in `~/.config/opencode/cli.json`:
 }
 ```
 
-Restart OpenCode and run `/behavior` or `/frustration`.
+Restart OpenCode and run `/frustration`.
 OpenCode installs the package from npm on first start and caches it.
 
 A bare package name resolves to the latest version once and stays on it.
@@ -55,33 +55,7 @@ Pass `--opencode-version 1` or `--opencode-version 2` to select the host explici
 
 ## Usage
 
-Run `/behavior`, then drive it from the keyboard:
-
-| Key         | What it does                             |
-| ----------- | ---------------------------------------- |
-| `tab`       | switch between **you** and **model**     |
-| `1`-`5`     | time range: 24h, 7d, 30d, 90d, all       |
-| `m`         | cycle the trend metric                   |
-| `f`         | filter to one model                      |
-| `g`         | toggle the **global** scope              |
-| `r`         | rescan sessions                          |
-| `j` / `k`   | scroll                                   |
-| `esc` / `q` | close                                    |
-
-By default the dashboard reads the current project.
-`g` switches to **global** scope and reads root sessions across projects from OpenCode's database.
-V1 scans reuse cached metrics.
-V2 scans reread message text because streaming updates can change existing rows.
-
-### Frustration
-
-`/frustration` classifies user messages as annoyed, at assistant, or angry.
-
-A judge model reads each message and rates how annoyed it sounds.
-
-Verdicts are cached by prose hash in Mouth's state directory; unjudged messages fall back to regex signals.
-
-Run `/frustration`, then:
+Run `/frustration`, then drive it from the keyboard:
 
 | Key | What it does |
 | --- | --- |
@@ -95,7 +69,16 @@ Run `/frustration`, then:
 | `j` / `k` | scroll |
 | `esc` / `q` | close |
 
+`/frustration` classifies user messages as annoyed, at assistant, or angry.
+A judge model reads each message and rates how annoyed it sounds; unjudged messages fall back to regex signals.
+
+By default the dashboard reads the current project.
+`g` switches to **global** scope and reads root sessions across projects from OpenCode's database.
+
+Scans ingest user messages into Mouth's state database (`stats.db`).
+Judging reads the pending messages from there, so cached and global sessions never need a rescan.
 Judging quotes the estimated cost before it runs.
+Verdicts and the stripped prose they cover stay local in Mouth's state directory.
 
 Curious what the numbers mean or want to tune it? See [docs/how-it-works.md](docs/how-it-works.md) and [docs/configuration.md](docs/configuration.md).
 

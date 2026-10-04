@@ -626,31 +626,3 @@ export function analyzeUserMessage(text: string): BehaviorMetrics {
   };
 }
 
-/**
- * Compute behavior metrics for an assistant message.
- *
- * Only profanity and yelling apply: the frustration signals (anguish,
- * negation, repetition, blame) are tuned for user tantrums and stay zero.
- * Unlike user messages there is no prose-length guard; assistant output is
- * long by nature, and profanity in it counts wherever it appears outside
- * code, quotes, and other structured content.
- */
-export function analyzeAssistantMessage(text: string): BehaviorMetrics {
-  const trimmed = text.trim();
-  if (!trimmed) return emptyMetrics();
-
-  const chars = trimmed.length;
-  const words = countMatches(trimmed, WORD_RE);
-
-  const prose = stripStructuredContent(trimmed).trim();
-  if (!prose) return emptyMetrics(chars, words);
-
-  const profanityWords: Record<string, number> = {};
-  const profanity = tallyMatches(prose, PROFANITY_RE, profanityWords);
-
-  const result = emptyMetrics(chars, words);
-  result.yelling = countYellingSentences(prose);
-  result.profanity = profanity;
-  result.profanityWords = profanityWords;
-  return result;
-}

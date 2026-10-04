@@ -21,10 +21,10 @@ V2 uses `session_v2` and `session_message` in transcript sequence order.
 If both schemas contain a session ID, the v2 session takes precedence.
 Legacy-only sessions remain readable during partial migration.
 Both scopes skip synthetic content and count only root sessions.
-V2 scoring includes user text and top-level assistant text, not reasoning or nested tool output.
-V1 metrics use a database-specific cache keyed by row counts.
-That cache does not detect edits that leave row counts unchanged; delete the cache to force a fresh v1 global scan.
-V2 sessions bypass the cache so existing-row text updates remain visible.
+Scans ingest every user message into Mouth's state database (`stats.db`, table `user_messages`) with its stripped prose, prose hash, signal counts, model, provider, and timestamp.
+V1 sessions record a row-count fingerprint marker; unchanged sessions are skipped on later scans.
+The marker does not detect edits that leave row counts unchanged; delete the marker database to force a fresh v1 global scan.
+V2 sessions are always re-read so existing-row text updates remain visible.
 While the scan runs, a live progress bar keeps the dashboard responsive: the scan yields between batches so every batch paints immediately.
 
 ## Scoring
@@ -47,15 +47,11 @@ Signals for your messages:
 
 Friction is negation + repetition + blame.
 
-Signals for model replies: profanity and yelling only.
-The other signals are tuned for human tantrums and stay zero.
-
 ## The prose-length guard
 
 Upstream oh-my-pi zeroes every signal when a user message has three or more prose lines, on the theory that formatted prompts are deliberate, not emotional.
 
 Mouth keeps that guard for the emotional signals (yelling, anguish, negation, repetition, blame) but deliberately deviates for profanity: a swear in a long prompt is still a swear, so profanity counts in messages of any length.
-Model replies never had the guard.
 
 ## Frustration and the judge
 
@@ -88,24 +84,25 @@ input and output prices. The run:
 - stores each verdict by prose hash, so later runs skip judged text;
 - can be cancelled with `c`.
 
-Verdicts and the stripped prose they cover live in Mouth's own state
-directory (`judge/verdicts.db`), next to the metrics cache. Nothing leaves
-your machine except the judge requests themselves, which go to the model
-you pick through OpenCode.
+Verdicts live in `frustration_verdicts`, and the stripped prose they cover
+lives with the ingested messages in Mouth's state database (`stats.db`).
+Pending texts and dashboard tallies are SQL queries over those tables.
+Nothing leaves your machine except the judge requests themselves, which go
+to the model you pick through OpenCode.
 
 On OpenCode v1 the judge runs in a temporary session with tools disabled
 and JSON-schema output. On OpenCode v2 it uses the host's generate API.
 
 ## Aggregation and filters
 
-Scoring produces one metric record per message: role, provider/model, timestamp, and counts.
-Every dashboard panel derives from those records in memory:
+Scoring ingests one row per user message into `stats.db`; every dashboard
+panel reads SQL over that table:
 
-- the time range filter keeps records newer than the cutoff
-- the model filter keeps one provider/model
+- the time range filter becomes a timestamp cutoff
+- the model tallies group by provider and model
 - the trend chart groups days into buckets so any range fits in 15 bars
 
-Changing the view, range, metric, or model filter never rescans.
+Changing the view or range never rescans.
 The scope toggle (`g`) is the exception: project, directory, and global read different session sets, so switching scope rescans from that source.
 
 ## Attribution

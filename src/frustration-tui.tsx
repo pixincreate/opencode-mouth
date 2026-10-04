@@ -2,10 +2,11 @@
 /**
  * OpenCode Mouth: frustration dashboard TUI plugin.
  *
- * Registers the `/frustration` command. It classifies user messages as
- * annoyed / at-assistant / angry. Cached LLM verdicts replace the regex
- * heuristics; unjudged messages fall back to regex signals. Judging runs
- * against a model you pick and stores verdicts locally.
+ * Registers the `/frustration` command. User messages are ingested into a
+ * local stats database (one row per message, like upstream's user_messages).
+ * Cached judge verdicts replace the regex heuristics; unjudged messages fall
+ * back to regex signals. Judging runs against a model you pick and stores
+ * verdicts locally.
  */
 import type { ScrollBoxRenderable } from "@opentui/core";
 import { useTerminalDimensions } from "@opentui/solid";
@@ -13,22 +14,24 @@ import { For, Match, Show, Switch, createEffect, createMemo, createSignal, onCle
 import type { Host } from "./host.ts";
 import { scan, yieldToUI, type LoadState, type ScanResult } from "./scan.ts";
 import {
-  buildFrustrationByDay,
-  buildFrustrationStats,
+  frustrationByDay,
+  frustrationByModel,
+  frustrationOverall,
   isMostlyRegex,
+  pendingProse,
+  saveVerdict,
+  type FrustrationCounts,
   type FrustrationDay,
   type FrustrationModelStats,
-} from "./frustration.ts";
+} from "./stats-db.ts";
 import {
-  idleJudgeJob,
   estimateJudgeRun,
+  idleJudgeJob,
   runJudge,
-  type FrustrationVerdict,
   type JudgeJobStatus,
   type JudgeModel,
   type PendingProse,
 } from "./judge.ts";
-import { saveVerdict } from "./verdicts.ts";
 import {
   BAR_WIDTH,
   type Card,
@@ -60,21 +63,31 @@ const PANEL_CHROME = 4;
 const THUMB_FIX_DELAY_MS = 100;
 const THUMB_FIX_SETTLE_MS = 600;
 
-// --- trend buckets ----------------------------------------------------------
+const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+
+const bucketLabel = (day: string): string => {
+  const [, month, date] = day.split("-");
+  const index = Number(month) - 1;
+  return `${MONTHS[index] ?? month} ${Number(date)}`;
+};
 
 interface FrustrationBucket {
   label: string;
-  counts: FrustrationDay;
+  counts: FrustrationCounts;
 }
 
-/** Bucket per-day frustration counts into at most 15 bars spanning the range. */
-function buildFrustrationBuckets(
+/** Bucket per-day counts into at most 15 bars spanning the range. */
+function buildTrendBuckets(
   byDay: FrustrationDay[],
   sinceMs: number | undefined,
   now: number,
   maxBars = 15,
 ): { buckets: FrustrationBucket[]; daysPerBucket: number } {
   const dayMs = 24 * 60 * 60 * 1000;
+  const dayKeyOf = (ts: number): string => {
+    const d = new Date(ts);
+    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+  };
   const startDay = sinceMs !== undefined ? dayKeyOf(sinceMs) : byDay[0]?.day ?? dayKeyOf(now);
   const start = new Date(`${startDay}T00:00:00`).getTime();
   const spanDays = Math.max(1, Math.round((now - start) / dayMs) + 1);
@@ -85,14 +98,7 @@ function buildFrustrationBuckets(
   const buckets: FrustrationBucket[] = [];
   for (let i = 0; i < bucketCount; i++) {
     const bucketStart = start + i * daysPerBucket * dayMs;
-    const counts: FrustrationDay = {
-      day: dayKeyOf(bucketStart),
-      messages: 0,
-      judged: 0,
-      annoyed: 0,
-      atAssistant: 0,
-      angry: 0,
-    };
+    const counts: FrustrationCounts = { messages: 0, judged: 0, annoyed: 0, atAssistant: 0, angry: 0 };
     for (let d = 0; d < daysPerBucket; d++) {
       const day = byKey.get(dayKeyOf(bucketStart + d * dayMs));
       if (!day) continue;
@@ -102,23 +108,10 @@ function buildFrustrationBuckets(
       counts.atAssistant += day.atAssistant;
       counts.angry += day.angry;
     }
-    buckets.push({ label: bucketLabel(counts.day), counts });
+    buckets.push({ label: bucketLabel(dayKeyOf(bucketStart)), counts });
   }
   return { buckets, daysPerBucket };
 }
-
-const dayKeyOf = (ts: number): string => {
-  const d = new Date(ts);
-  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
-};
-
-const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
-
-const bucketLabel = (day: string): string => {
-  const [, month, date] = day.split("-");
-  const index = Number(month) - 1;
-  return `${MONTHS[index] ?? month} ${Number(date)}`;
-};
 
 // --- route ------------------------------------------------------------------
 
@@ -129,8 +122,16 @@ export async function setupFrustration(host: Host): Promise<void> {
   const [range, setRange] = createSignal<RangeKey>(opts.range);
   const [scope, setScope] = createSignal<Scope>(opts.scope);
   const [state, setState] = createSignal<LoadState>({ status: "idle" });
-  const [verdicts, setVerdicts] = createSignal<Map<string, FrustrationVerdict>>(new Map());
-  const [prose, setProse] = createSignal<PendingProse[]>([]);
+  const [overall, setOverall] = createSignal<FrustrationCounts>({
+    messages: 0,
+    judged: 0,
+    annoyed: 0,
+    atAssistant: 0,
+    angry: 0,
+  });
+  const [byModel, setByModel] = createSignal<FrustrationModelStats[]>([]);
+  const [byDay, setByDay] = createSignal<FrustrationDay[]>([]);
+  const [pending, setPending] = createSignal<PendingProse[]>([]);
   const [models, setModels] = createSignal<JudgeModel[]>([]);
   const [model, setModel] = createSignal<JudgeModel>();
   const [job, setJob] = createSignal<JudgeJobStatus>(idleJudgeJob());
@@ -144,31 +145,13 @@ export async function setupFrustration(host: Host): Promise<void> {
 
   const sinceMs = (): number | undefined => rangeSince(range());
 
-  const stats = createMemo(() => {
-    const current = state();
-    if (current.status !== "ready") return undefined;
-    return buildFrustrationStats(current.records, verdicts(), { role: "user", since: sinceMs() });
-  });
-
-  const trend = createMemo(() => {
-    const current = state();
-    if (current.status !== "ready") return undefined;
-    return buildFrustrationBuckets(buildFrustrationByDay(current.records, verdicts(), { role: "user", since: sinceMs() }), sinceMs(), Date.now());
-  });
-
-  const pendingProse = createMemo(() => {
-    const seen = new Map<string, string>();
-    for (const entry of prose()) {
-      if (!verdicts().has(entry.hash)) seen.set(entry.hash, entry.prose);
-    }
-    return [...seen].map(([hash, value]) => ({ hash, prose: value }));
-  });
-
-  const estimate = createMemo(() => {
-    const current = model();
-    if (!current) return undefined;
-    return estimateJudgeRun(pendingProse(), current);
-  });
+  const loadStats = (): void => {
+    const since = sinceMs();
+    setOverall(frustrationOverall(since));
+    setByModel(frustrationByModel(since));
+    setByDay(frustrationByDay(since));
+    setPending(pendingProse(since));
+  };
 
   const load = async (): Promise<void> => {
     if (loading) return;
@@ -180,9 +163,8 @@ export async function setupFrustration(host: Host): Promise<void> {
       const result = await scan(host, { ...opts, scope: wantedScope }, (done, total) =>
         setState({ status: "loading", done, total }),
       );
-      setVerdicts(result.verdicts);
-      setProse(result.prose);
       setState({ status: "ready", ...result });
+      loadStats();
       if (!model()) void loadModels();
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
@@ -235,28 +217,24 @@ export async function setupFrustration(host: Host): Promise<void> {
       return;
     }
     if (job().state === "running") return;
-    const pending = pendingProse();
-    if (pending.length === 0) {
+    const queue = pending();
+    if (queue.length === 0) {
       host.toast({ variant: "info", title: "mouth", message: "Everything in this range is already judged", duration: 4000 });
       return;
     }
     controller = new AbortController();
-    setJob({ ...idleJudgeJob(), state: "running", total: pending.length, judge: current.name, startedAt: Date.now() });
+    setJob({ ...idleJudgeJob(), state: "running", total: queue.length, judge: current.name, startedAt: Date.now() });
     const final = await runJudge({
-      pending,
+      pending: queue,
       model: current,
       signal: controller.signal,
       judge: (request) => host.judge(request),
-      save: (verdict) => {
-        saveVerdict(verdict);
-        const next = new Map(verdicts());
-        next.set(verdict.proseHash, verdict);
-        setVerdicts(next);
-      },
+      save: (verdict) => saveVerdict(verdict),
       onProgress: (progress) => setJob({ ...progress }),
     });
     setJob(final);
     controller = undefined;
+    loadStats();
   };
 
   const cancel = (): void => {
@@ -302,7 +280,10 @@ export async function setupFrustration(host: Host): Promise<void> {
       title: `Range ${entry.label}`,
       group: "Mouth",
       bind: String(index + 1),
-      run: () => setRange(entry.key),
+      run: () => {
+        setRange(entry.key);
+        loadStats();
+      },
     })),
     { id: "mouth.frustration.scroll.down", title: "Scroll down", group: "Mouth", bind: "j,down", run: () => scrollBy(2) },
     { id: "mouth.frustration.scroll.up", title: "Scroll up", group: "Mouth", bind: "k,up", run: () => scrollBy(-2) },
@@ -327,61 +308,57 @@ export async function setupFrustration(host: Host): Promise<void> {
     const width = () => dim().width;
 
     const cards = (): Card[] => {
-      const overall = stats()?.overall;
-      if (!overall) return [];
+      const counts = overall();
       return [
         {
           label: "Judged",
-          value: fmtRate(overall.judged, overall.messages),
-          sub: `${fmtInt(overall.judged)} judged · ${fmtInt(overall.messages - overall.judged)} regex`,
+          value: fmtRate(counts.judged, counts.messages),
+          sub: `${fmtInt(counts.judged)} judged · ${fmtInt(counts.messages - counts.judged)} regex`,
         },
         {
           label: "Annoyed",
-          value: fmtRate(overall.annoyed, overall.messages),
-          sub: `${fmtInt(overall.annoyed)} of ${fmtInt(overall.messages)} messages`,
+          value: fmtRate(counts.annoyed, counts.messages),
+          sub: `${fmtInt(counts.annoyed)} of ${fmtInt(counts.messages)} messages`,
           color: "warning",
         },
         {
           label: "At assistant",
-          value: fmtRate(overall.atAssistant, overall.messages),
-          sub: `${fmtInt(overall.atAssistant)} messages`,
+          value: fmtRate(counts.atAssistant, counts.messages),
+          sub: `${fmtInt(counts.atAssistant)} messages`,
           color: "error",
         },
         {
           label: "Angry",
-          value: fmtRate(overall.angry, overall.messages),
-          sub: `${fmtInt(overall.angry)} messages`,
+          value: fmtRate(counts.angry, counts.messages),
+          sub: `${fmtInt(counts.angry)} messages`,
           color: "error",
         },
       ];
     };
 
     const modelRows = (): FrustrationModelStats[] =>
-      (stats()?.byModel ?? []).filter((row) => !hideRegex() || !isMostlyRegex(row)).slice(0, MAX_TABLE_ROWS);
-
-    const stackedRow = (row: FrustrationModelStats) => {
-      const total = Math.max(1, row.messages);
-      const angry = Math.round((row.angry / total) * BAR_WIDTH);
-      const mid = Math.round(((row.atAssistant - row.angry) / total) * BAR_WIDTH);
-      const other = Math.round(((row.annoyed - row.atAssistant) / total) * BAR_WIDTH);
-      const rest = Math.max(0, BAR_WIDTH - angry - mid - other);
-      return { angry, mid, other, rest };
-    };
+      byModel()
+        .filter((row) => !hideRegex() || !isMostlyRegex(row))
+        .slice(0, MAX_TABLE_ROWS);
 
     const modelLine = (row: FrustrationModelStats): string =>
       `${fmtRate(row.atAssistant, row.messages)} at assistant · ${fmtInt(row.judged)}/${fmtInt(row.messages)} judged`;
 
+    const stacked = (row: FrustrationModelStats) => {
+      const total = Math.max(1, row.messages);
+      const angry = Math.round((row.angry / total) * BAR_WIDTH);
+      const mid = Math.round(((row.atAssistant - row.angry) / total) * BAR_WIDTH);
+      const other = Math.round(((row.annoyed - row.atAssistant) / total) * BAR_WIDTH);
+      return { angry, mid, other, rest: Math.max(0, BAR_WIDTH - angry - mid - other) };
+    };
+
     const judgePanel = () => {
       const current = model();
       const currentJob = job();
-      const pending = pendingProse();
-      const currentEstimate = estimate();
+      const queue = pending();
+      const currentEstimate = current ? estimateJudgeRun(queue, current) : undefined;
       return (
-        <Panel
-          title="Judge"
-          subtitle="cached verdicts replace regex signals; unjudged messages fall back to regex"
-          th={th}
-        >
+        <Panel title="Judge" subtitle="cached verdicts replace regex signals; unjudged messages fall back to regex" th={th}>
           <Show
             when={current}
             fallback={<text fg={th().warning}>No judge model available. Configure a provider and model in OpenCode.</text>}
@@ -402,7 +379,7 @@ export async function setupFrustration(host: Host): Promise<void> {
                   <Chip label="cancel" active={false} th={th} onPick={cancel} />
                 </box>
               </Match>
-              <Match when={pending.length === 0}>
+              <Match when={queue.length === 0}>
                 <text fg={th().textMuted}>Everything in this range is already judged.</text>
               </Match>
               <Match when={currentEstimate}>
@@ -427,11 +404,15 @@ export async function setupFrustration(host: Host): Promise<void> {
     };
 
     const trendPanel = () => {
-      const current = trend();
-      if (!current || current.buckets.length === 0) return null;
+      const current = buildTrendBuckets(byDay(), sinceMs(), Date.now());
+      if (current.buckets.length === 0) return null;
       const max = Math.max(...current.buckets.map((bucket) => bucket.counts.atAssistant), 1);
       return (
-        <Panel title="At assistant trend" subtitle={`share of user messages · each bar is one day${current.daysPerBucket > 1 ? ` or ${current.daysPerBucket} days` : ""}`} th={th}>
+        <Panel
+          title="At assistant trend"
+          subtitle={`share of user messages · each bar is one day${current.daysPerBucket > 1 ? ` or ${current.daysPerBucket} days` : ""}`}
+          th={th}
+        >
           <For each={current.buckets}>
             {(bucket) => {
               const ratio = () => bucket.counts.atAssistant / max;
@@ -469,24 +450,29 @@ export async function setupFrustration(host: Host): Promise<void> {
             <text fg={th().textMuted}>{cell("ANGRY%")}</text>
           </box>
           <For each={rows}>
-            {(row) => (
-              <box flexDirection="row">
-                <text fg={th().text}>
-                  {clip(`${row.providerID}/${row.modelID}`, nameWidth - 1).padEnd(nameWidth)}
-                </text>
-                <text fg={th().textMuted}>{cell(fmtInt(row.messages))}</text>
-                <text fg={th().textMuted}>{cell(fmtInt(row.judged))}</text>
-                <text fg={th().text}>{cell(fmtRate(row.annoyed, row.messages))}</text>
-                <text fg={th().error}>{cell(fmtRate(row.atAssistant, row.messages))}</text>
-                <text fg={th().error}>{cell(fmtRate(row.angry, row.messages))}</text>
-                <Show when={isMostlyRegex(row)}>
-                  <text fg={th().warning}> regex</text>
-                </Show>
-              </box>
-            )}
+            {(row) => {
+              const parts = stacked(row);
+              return (
+                <box flexDirection="row">
+                  <text fg={th().text}>{clip(`${row.provider}/${row.model}`, nameWidth - 1).padEnd(nameWidth)}</text>
+                  <text fg={th().error}>{"█".repeat(parts.angry)}</text>
+                  <text fg={th().warning}>{"█".repeat(parts.mid)}</text>
+                  <text fg={th().info}>{"█".repeat(parts.other)}</text>
+                  <text fg={th().border}>{"░".repeat(parts.rest)}</text>
+                  <text fg={th().textMuted}>{cell(fmtInt(row.messages))}</text>
+                  <text fg={th().textMuted}>{cell(fmtInt(row.judged))}</text>
+                  <text fg={th().text}>{cell(fmtRate(row.annoyed, row.messages))}</text>
+                  <text fg={th().error}>{cell(fmtRate(row.atAssistant, row.messages))}</text>
+                  <text fg={th().error}>{cell(fmtRate(row.angry, row.messages))}</text>
+                  <Show when={isMostlyRegex(row)}>
+                    <text fg={th().warning}> regex</text>
+                  </Show>
+                </box>
+              );
+            }}
           </For>
-          <Show when={(stats()?.byModel.length ?? 0) > rows.length}>
-            <text fg={th().textMuted}>… {fmtInt((stats()?.byModel.length ?? 0) - rows.length)} more models</text>
+          <Show when={byModel().length > rows.length}>
+            <text fg={th().textMuted}>… {fmtInt(byModel().length - rows.length)} more models</text>
           </Show>
         </Panel>
       );
@@ -527,7 +513,15 @@ export async function setupFrustration(host: Host): Promise<void> {
     };
 
     return (
-      <box width={width()} height={dim().height} backgroundColor={th().backgroundPanel} flexDirection="column" paddingTop={1} paddingLeft={2} paddingRight={2}>
+      <box
+        width={width()}
+        height={dim().height}
+        backgroundColor={th().backgroundPanel}
+        flexDirection="column"
+        paddingTop={1}
+        paddingLeft={2}
+        paddingRight={2}
+      >
         <box flexDirection="row" flexShrink={0} gap={2}>
           <text fg={th().accent}>
             <b>MOUTH</b>
@@ -539,7 +533,15 @@ export async function setupFrustration(host: Host): Promise<void> {
         <box flexDirection="row" flexShrink={0} gap={1} paddingTop={1} paddingBottom={1} flexWrap="wrap">
           <For each={RANGES}>
             {(entry) => (
-              <Chip label={entry.label} active={range() === entry.key} th={th} onPick={() => setRange(entry.key)} />
+              <Chip
+                label={entry.label}
+                active={range() === entry.key}
+                th={th}
+                onPick={() => {
+                  setRange(entry.key);
+                  loadStats();
+                }}
+              />
             )}
           </For>
           <text fg={th().border}>│</text>
@@ -549,7 +551,12 @@ export async function setupFrustration(host: Host): Promise<void> {
             th={th}
             onPick={() => void pickModel()}
           />
-          <Chip label={hideRegex() ? "hide regex rows" : "show all rows"} active={hideRegex()} th={th} onPick={() => setHideRegex(!hideRegex())} />
+          <Chip
+            label={hideRegex() ? "hide regex rows" : "show all rows"}
+            active={hideRegex()}
+            th={th}
+            onPick={() => setHideRegex(!hideRegex())}
+          />
           <Show when={ready()}>
             {(view: () => ScanResult & { status: "ready" }) => (
               <text fg={th().textMuted}>
@@ -568,7 +575,6 @@ export async function setupFrustration(host: Host): Promise<void> {
               <text fg={th().text}>Scanning sessions…</text>
               <box flexDirection="row">
                 <text fg={th().accent}>{"█".repeat(30)}</text>
-                <text fg={th().border}>{"░".repeat(0)}</text>
                 <text fg={th().textMuted}>
                   {" "}
                   {fmtInt((state() as { done: number }).done)}/{fmtInt((state() as { total: number }).total)}
@@ -581,10 +587,15 @@ export async function setupFrustration(host: Host): Promise<void> {
           </Match>
           <Match when={ready()}>
             <Show
-              when={(stats()?.overall.messages ?? 0) > 0}
+              when={overall().messages > 0}
               fallback={<text fg={th().textMuted}>No user messages in this range.</text>}
             >
-              <scrollbox ref={(el: ScrollBoxRenderable) => { scroller = el; }} flexGrow={1}>
+              <scrollbox
+                ref={(el: ScrollBoxRenderable) => {
+                  scroller = el;
+                }}
+                flexGrow={1}
+              >
                 <box flexDirection="column" gap={1} flexShrink={0} width={width() - BODY_INSET}>
                   <Cards cards={cards()} th={th} />
                   {judgePanel()}

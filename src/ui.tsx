@@ -1,10 +1,9 @@
 /** @jsxImportSource @opentui/solid */
 /**
- * Shared dashboard helpers: options, formatting, small components, and chart
- * bucketing used by both the behavior and frustration routes.
+ * Shared dashboard helpers: options, formatting, and small components used by
+ * the frustration route.
  */
 import { For, Show } from "solid-js";
-import { dayKey, type DayTotals, type ModelTotals, type Totals } from "./aggregate.ts";
 import type { Palette as ThemePalette } from "./theme.ts";
 
 export type Palette = () => ThemePalette;
@@ -67,31 +66,16 @@ export const fmtRate = (hits: number, messages: number): string => {
   return `${pct.toFixed(0)}%`;
 };
 
-export const perHundred = (hits: number, messages: number): string | undefined => {
-  if (messages <= 0 || hits === 0) return undefined;
-  return `${((hits / messages) * 100).toFixed(1)} per 100 msgs`;
-};
-
 export const fmtCost = (usd: number): string => {
   if (usd <= 0) return "$0.00";
   if (usd < 0.01) return `$${usd.toFixed(4)}`;
   return `$${usd.toFixed(2)}`;
 };
 
-const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
-
-export const dayLabel = (day: string): string => {
-  const [, month, date] = day.split("-");
-  const index = Number(month) - 1;
-  return `${MONTHS[index] ?? month} ${Number(date)}`;
-};
-
 export const clockLabel = (ts: number): string => {
   const d = new Date(ts);
   return `${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}`;
 };
-
-export const modelLabel = (model: ModelTotals): string => `${model.providerID}/${model.modelID}`;
 
 export const clip = (text: string, width: number): string =>
   text.length <= width ? text : `${text.slice(0, Math.max(0, width - 1))}…`;
@@ -108,74 +92,9 @@ export const bar = (ratio: number, width: number): { fill: string; rest: string 
   return { fill: "█".repeat(cells), rest: "░".repeat(width - cells) };
 };
 
-// --- trend chart buckets ----------------------------------------------------
+// --- components -------------------------------------------------------------
 
 export const BAR_WIDTH = 22;
-export const MAX_CHART_BARS = 15;
-
-export interface ChartBucket {
-  label: string;
-  totals: Totals;
-}
-
-/**
- * Bucket per-day totals into at most `maxBars` bars spanning the filtered
- * range. 24h/7d ranges get one bar per day; wider ranges group days.
- */
-export function buildChartBuckets(
-  byDay: DayTotals[],
-  sinceMs: number | undefined,
-  now: number,
-  maxBars = MAX_CHART_BARS,
-): { buckets: ChartBucket[]; daysPerBucket: number } {
-  const dayMs = 24 * 60 * 60 * 1000;
-  let startDay: string;
-  if (sinceMs !== undefined) {
-    startDay = dayKey(sinceMs);
-  } else if (byDay.length > 0) {
-    startDay = byDay[0].day;
-  } else {
-    startDay = dayKey(now);
-  }
-  const start = new Date(`${startDay}T00:00:00`).getTime();
-  const spanDays = Math.max(1, Math.round((now - start) / dayMs) + 1);
-  const daysPerBucket = Math.max(1, Math.ceil(spanDays / maxBars));
-  const bucketCount = Math.ceil(spanDays / daysPerBucket);
-
-  const byKey = new Map(byDay.map((d) => [d.day, d]));
-  const buckets: ChartBucket[] = [];
-  for (let i = 0; i < bucketCount; i++) {
-    const bucketStart = start + i * daysPerBucket * dayMs;
-    const totals: Totals = {
-      messages: 0,
-      chars: 0,
-      words: 0,
-      yelling: 0,
-      profanity: 0,
-      anguish: 0,
-      negation: 0,
-      repetition: 0,
-      blame: 0,
-    };
-    for (let d = 0; d < daysPerBucket; d++) {
-      const day = byKey.get(dayKey(bucketStart + d * dayMs));
-      if (!day) continue;
-      totals.messages += day.messages;
-      totals.chars += day.chars;
-      totals.words += day.words;
-      totals.yelling += day.yelling;
-      totals.profanity += day.profanity;
-      totals.anguish += day.anguish;
-      totals.negation += day.negation;
-      totals.repetition += day.repetition;
-      totals.blame += day.blame;
-    }
-    buckets.push({ label: dayLabel(dayKey(bucketStart)), totals });
-  }
-  return { buckets, daysPerBucket };
-}
-
-// --- components -------------------------------------------------------------
 
 export interface Card {
   label: string;
