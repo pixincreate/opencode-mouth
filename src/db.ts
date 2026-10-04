@@ -15,19 +15,25 @@
  * for just the handful of rows that matter (text parts).
  */
 
-import { Database } from "bun:sqlite";
+import { openDatabase, type Connection } from "./sqlite.ts";
 import type { MessageSample } from "./aggregate.ts";
+import type { ModelRef, SessionMessageInfo } from "@opencode/client";
+import { v2Samples } from "./messages.ts";
 
-const DB_PATH = `${process.env.HOME}/.local/share/opencode/opencode.db`;
+export const DB_PATH = process.env.OPENCODE_DB ?? `${process.env.XDG_DATA_HOME ?? `${process.env.HOME}/.local/share`}/opencode/opencode.db`;
 
 /** Serialized text parts always start with the type field; prefix length drives the substr check. */
 const TEXT_PART_PREFIX = '{"type":"text"';
 
-let db: Database | null = null;
+let db: Connection | null = null;
 
-function openDb(): Database {
+function hasTable(name: string): boolean {
+  return !!openDb().prepare("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = ?").get(name);
+}
+
+function openDb(): Connection {
   if (db) return db;
-  db = new Database(DB_PATH, { readonly: true, create: false });
+  db = openDatabase(DB_PATH, true);
   return db;
 }
 
@@ -49,6 +55,7 @@ export interface SessionRow {
   id: string;
   message_count: number;
   part_count: number;
+  source: number;
 }
 
 /**
@@ -63,15 +70,20 @@ export interface SessionRow {
  */
 export function queryGlobalSessions(limit: number): SessionRow[] {
   const conn = openDb();
+  const v2 = hasTable("session_v2") && hasTable("session_message");
+  const v1 = hasTable("session") && hasTable("message") && hasTable("part");
+  if (!v1 && !v2) throw new Error(`Unsupported OpenCode database schema at ${DB_PATH}`);
+  const sources: string[] = [];
+  if (v1) sources.push(`SELECT s.id, s.time_updated,
+    (SELECT count(*) FROM message m WHERE m.session_id = s.id) AS message_count,
+    (SELECT count(*) FROM part p WHERE p.session_id = s.id) AS part_count, 1 AS source
+    FROM session s WHERE s.parent_id IS NULL
+    ${v2 ? "AND NOT EXISTS (SELECT 1 FROM session_v2 v WHERE v.id = s.id)" : ""}`);
+  if (v2) sources.push(`SELECT s.id, s.time_updated, 0 AS message_count, 0 AS part_count, 2 AS source
+    FROM session_v2 s WHERE s.parent_id IS NULL`);
   return conn
     .prepare(
-      `SELECT s.id,
-              (SELECT count(*) FROM message m WHERE m.session_id = s.id) as message_count,
-              (SELECT count(*) FROM part p WHERE p.session_id = s.id) as part_count
-       FROM session s
-       WHERE s.parent_id IS NULL
-       ORDER BY s.time_updated DESC
-       LIMIT ?`,
+      `SELECT * FROM (${sources.join(" UNION ALL ")}) ORDER BY time_updated DESC LIMIT ?`,
     )
     .all(limit) as unknown as SessionRow[];
 }
@@ -80,6 +92,36 @@ export function queryGlobalSessions(limit: number): SessionRow[] {
 export interface SessionFingerprint {
   messages: number;
   parts: number;
+}
+
+/** Read each session from its authoritative schema. V2 projections supersede migrated v1 rows. */
+export function querySamples(sessions: readonly SessionRow[]): Map<string, MessageSample[]> {
+  const conn = openDb();
+  const out = new Map<string, MessageSample[]>();
+  const legacy = sessions.filter((session) => session.source === 1).map((session) => session.id);
+  const texts = queryTextParts(legacy);
+  for (const meta of queryMessageMetas(legacy)) {
+    if (meta.role !== "user" && meta.role !== "assistant") continue;
+    const text = texts.get(meta.id)?.join("\n");
+    if (!text?.trim()) continue;
+    const samples = out.get(meta.sessionId) ?? [];
+    samples.push({ role: meta.role, providerID: meta.providerID ?? "unknown", modelID: meta.modelID ?? "unknown", created: meta.created, text });
+    out.set(meta.sessionId, samples);
+  }
+  for (const group of chunk(sessions.filter((session) => session.source === 2).map((session) => session.id))) {
+    const rows = conn.prepare(`SELECT m.id, m.session_id, m.type, m.data, s.model
+      FROM session_message m JOIN session_v2 s ON s.id = m.session_id
+      WHERE m.session_id IN (${placeholders(group.length)}) AND m.type IN ('user', 'assistant', 'model-switched')
+      ORDER BY m.session_id, m.seq`).all(...group) as Array<{ id: string; session_id: string; type: string; data: string; model: string | null }>;
+    const messages = new Map<string, { messages: SessionMessageInfo[]; model?: ModelRef }>();
+    for (const row of rows) {
+      const entry = messages.get(row.session_id) ?? { messages: [], model: row.model ? JSON.parse(row.model) as ModelRef : undefined };
+      entry.messages.push({ ...JSON.parse(row.data), id: row.id, type: row.type } as SessionMessageInfo);
+      messages.set(row.session_id, entry);
+    }
+    for (const [id, entry] of messages) out.set(id, v2Samples(entry.messages, entry.model));
+  }
+  return out;
 }
 
 export interface MessageMeta {

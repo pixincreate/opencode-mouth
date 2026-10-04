@@ -3,17 +3,20 @@
 ## Setup
 
 ```bash
-npm install --legacy-peer-deps
+npm install
 npm run check   # typecheck + build + tests
+npm run shellcheck
+npm run test:db # requires Bun; validates v1, v2, and mixed databases
 ```
-
-`--legacy-peer-deps` is needed because `@opentui/keymap@0.4.5` pins `solid-js@1.9.12`.
 
 Development install that points OpenCode at your local build:
 
 ```bash
 scripts/install.sh --clone
 ```
+
+Use `--opencode-version 1` or `--opencode-version 2` when host detection is unavailable.
+Test both hosts before releasing changes to the adapters.
 
 ## Layout
 
@@ -22,6 +25,8 @@ scripts/install.sh --clone
 - `src/db.ts`: direct SQLite reader for OpenCode's database (global scope)
 - `src/cache.ts`: per-session metrics cache for the global scan
 - `src/tui.tsx`: the `/behavior` command and dashboard UI
+- `src/host.ts`: v1 and v2 host adapters
+- `src/messages.ts`: v2 transcript text and model attribution
 - `build.mjs`: bundles `dist/tui.js`
 - `test/`: behavioral tests run by `node --test`
 - `scripts/`: installer and release helper

@@ -9,6 +9,7 @@ MANAGED_END="opencode-mouth:end"
 
 mode="release"
 version="${MOUTH_INSTALL_VERSION:-}"
+opencode_version=""
 
 usage() {
   cat <<'EOF'
@@ -17,13 +18,14 @@ Usage: scripts/install.sh [options]
 Install the OpenCode Mouth TUI plugin.
 
 Options:
-  --clone       Clone/build locally and point OpenCode at the local dist/tui.js
+  --clone       Clone/build locally and configure the local plugin
   --uninstall   Remove the managed OpenCode plugin entry and installed files
   --version X   Install release version X.Y.Z (default: latest release)
+  --opencode-version 1|2  Select the host (default: detect opencode --version)
   -h, --help    Show this help
 
 Environment overrides:
-  MOUTH_INSTALL_CONFIG      default: ~/.config/opencode/tui.jsonc
+  MOUTH_INSTALL_CONFIG      override the selected host's config path
   MOUTH_INSTALL_STATE_DIR   default: ~/.local/share/opencode-mouth
   MOUTH_INSTALL_REPO_URL    default: https://github.com/pixincreate/opencode-mouth.git
   MOUTH_INSTALL_PLUGIN_SRC  install plugin file from a local path instead of a release
@@ -48,6 +50,11 @@ while [[ $# -gt 0 ]]; do
       version="$2"
       shift 2
       ;;
+    --opencode-version)
+      opencode_version="${2:-}"
+      [[ "$opencode_version" == 1 || "$opencode_version" == 2 ]] || { echo "Error: --opencode-version requires 1 or 2" >&2; exit 1; }
+      shift 2
+      ;;
     -h|--help)
       usage
       exit 0
@@ -61,7 +68,20 @@ while [[ $# -gt 0 ]]; do
 done
 
 home_dir="${HOME:?HOME is required}"
-config_file="${MOUTH_INSTALL_CONFIG:-${home_dir}/.config/opencode/tui.jsonc}"
+if [[ -z "$opencode_version" ]]; then
+  detected="$(opencode --version 2>/dev/null || true)"
+  detected="${detected#opencode }"
+  if [[ "$detected" =~ ^v?([12])\.[0-9]+\.[0-9]+ ]]; then
+    opencode_version="${BASH_REMATCH[1]}"
+  else
+    echo "Error: cannot detect OpenCode version. Pass --opencode-version 1 or 2." >&2
+    exit 1
+  fi
+fi
+config_name="tui.jsonc"
+config_key="plugin"
+if [[ "$opencode_version" == 2 ]]; then config_name="cli.json"; config_key="plugins"; fi
+config_file="${MOUTH_INSTALL_CONFIG:-${XDG_CONFIG_HOME:-${home_dir}/.config}/opencode/${config_name}}"
 state_dir="${MOUTH_INSTALL_STATE_DIR:-${home_dir}/.local/share/opencode-mouth}"
 repo_dir="${state_dir}/repo"
 repo_url="${MOUTH_INSTALL_REPO_URL:-$REPO_URL_DEFAULT}"
@@ -80,7 +100,7 @@ require_command() {
 
 latest_version() {
   require_command curl
-  curl -fsSL "$API_URL" \
+  curl -A 'OpenAI File Downloader, XaiImageApiFetch/1.0' -fsSL "$API_URL" \
     | tr ',' '\n' \
     | awk -F'"' '/"tag_name"/ { print $4; exit }' \
     | sed 's/^v//'
@@ -95,6 +115,11 @@ validate_version() {
 
 plugin_block() {
   local spec="$1"
+  spec="${spec//\\/\\\\}"
+  spec="${spec//\"/\\\"}"
+  spec="${spec//$'\n'/\\n}"
+  spec="${spec//$'\r'/\\r}"
+  spec="${spec//$'\t'/\\t}"
   cat <<EOF
     // ${MANAGED_START}
     "${spec}",
@@ -123,7 +148,7 @@ write_plugin_config() {
   if [[ ! -f "$config_file" ]]; then
     cat >"$config_file" <<EOF
 {
-  "plugin": [
+  "${config_key}": [
 $(plugin_block "$spec")
   ]
 }
@@ -131,29 +156,34 @@ EOF
     return
   fi
 
+  local array_pattern="^[[:space:]]*(\\{[[:space:]]*)?\"${config_key}\"[[:space:]]*:[[:space:]]*\\["
+  # Do not edit block-comment layouts with the line-oriented writer.
+  if grep -Fq '/*' "$config_file"; then
+    echo "Error: unsupported config layout. Remove block comments before running the installer." >&2
+    return 1
+  fi
+  if ! grep -Eq "$array_pattern" "$config_file" &&
+     ! grep -Eq '^[[:space:]]*\{[[:space:]]*\}[[:space:]]*$' "$config_file"; then
+    if awk -v key="$config_key" '!/^[[:space:]]*\/\// && $0 ~ "\"" key "\"[[:space:]]*:" { found=1 } END { exit !found }' "$config_file" ||
+       ! grep -Eq '^[[:space:]]*\{[[:space:]]*$' "$config_file"; then
+      echo "Error: unsupported config layout. Add a ${config_key} array before running the installer." >&2
+      return 1
+    fi
+  fi
   strip_managed_plugin "$config_file"
   tmp="$(mktemp)"
   block_file="$(mktemp)"
   plugin_block "$spec" >"$block_file"
 
-  if grep -Eq '"plugin"[[:space:]]*:[[:space:]]*\[[[:space:]]*\]' "$config_file"; then
-    awk -v block_file="$block_file" '
-      /"plugin"[[:space:]]*:[[:space:]]*\[[[:space:]]*\]/ {
-        sub(/\[[[:space:]]*\]/, "[")
-        print
+  if grep -Eq "$array_pattern" "$config_file"; then
+    awk -v block_file="$block_file" -v key="$config_key" '
+      inserted == 0 && $0 ~ "^[[:space:]]*(\\{[[:space:]]*)?\"" key "\"[[:space:]]*:[[:space:]]*\\[" {
+        match($0, "\"" key "\"[[:space:]]*:[[:space:]]*\\[")
+        boundary = RSTART + RLENGTH - 1
+        print substr($0, 1, boundary)
         while ((getline line < block_file) > 0) print line
         close(block_file)
-        print "  ]"
-        next
-      }
-      { print }
-    ' "$config_file" >"$tmp"
-  elif grep -Eq '"plugin"[[:space:]]*:[[:space:]]*\[' "$config_file"; then
-    awk -v block_file="$block_file" '
-      inserted == 0 && /"plugin"[[:space:]]*:[[:space:]]*\[/ {
-        print
-        while ((getline line < block_file) > 0) print line
-        close(block_file)
+        print substr($0, boundary + 1)
         inserted = 1
         next
       }
@@ -162,16 +192,16 @@ EOF
   elif grep -Eq '^[[:space:]]*\{[[:space:]]*\}[[:space:]]*$' "$config_file"; then
     cat >"$tmp" <<EOF
 {
-  "plugin": [
+  "${config_key}": [
 $(plugin_block "$spec")
   ]
 }
 EOF
   else
-    awk -v block_file="$block_file" '
+    awk -v block_file="$block_file" -v key="$config_key" '
       inserted == 0 && /^[[:space:]]*\{/ {
         print
-        print "  \"plugin\": ["
+        print "  \"" key "\": ["
         while ((getline line < block_file) > 0) print line
         close(block_file)
         print "  ],"
@@ -200,10 +230,10 @@ install_release() {
     validate_version "$install_version"
     require_command curl
     plugin_url="https://github.com/${REPO}/releases/download/v${install_version}/tui.js"
-    curl -fsSL "$plugin_url" -o "$plugin_file"
+    curl -A 'OpenAI File Downloader, XaiImageApiFetch/1.0' -fsSL "$plugin_url" -o "$plugin_file"
   fi
 
-  write_plugin_config "$plugin_file"
+  if [[ "$opencode_version" == 2 ]]; then write_plugin_config "$state_dir"; else write_plugin_config "$plugin_file"; fi
 
   log "Installed plugin to ${plugin_file}"
   log "Configured OpenCode TUI plugin in ${config_file}"
@@ -223,7 +253,7 @@ install_clone() {
 
   (cd "$repo_dir" && npm install && npm run build)
 
-  write_plugin_config "${repo_dir}/dist/tui.js"
+  if [[ "$opencode_version" == 2 ]]; then write_plugin_config "${repo_dir}/dist"; else write_plugin_config "${repo_dir}/dist/tui.js"; fi
 
   log "Configured local OpenCode TUI plugin in ${config_file}"
   log "Restart OpenCode and run /behavior"
