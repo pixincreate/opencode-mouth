@@ -4,6 +4,8 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+## [2.0.0] - 2026-10-04
+
 ### Added
 
 - Frustration dashboard: `/frustration` reports how often user messages sound annoyed, aimed at the assistant, or angry, per model version.
