@@ -1,6 +1,6 @@
 {
   "name": "opencode-mouth",
-  "version": "2.0.0",
+  "version": "3.0.0",
   "description": "Potty mouth detector for OpenCode: measure what comes out of your model's mouth (and yours)",
   "type": "module",
   "exports": {
