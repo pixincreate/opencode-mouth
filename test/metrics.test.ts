@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { analyzeAssistantMessage, analyzeUserMessage } from "../src/metrics.ts";
+import { analyzeUserMessage } from "../src/metrics.ts";
 
 test("counts profanity with word boundaries, case-insensitive", () => {
   const m = analyzeUserMessage("what the FUCK is this shit");
@@ -78,27 +78,3 @@ test("profanity in a long prompt is counted per word", () => {
   assert.deepEqual(m.profanityWords, { retard: 1, retarded: 1 });
 });
 
-test("assistant messages count profanity without the prose-length guard", () => {
-  const lines = [
-    "The damn cache was stale.",
-    "I cleared it and re-ran the build.",
-    "All twelve tests pass now.",
-    "Holy crap that took a while.",
-  ];
-  const m = analyzeAssistantMessage(lines.join("\n"));
-  assert.equal(m.profanity, 2);
-  assert.deepEqual(m.profanityWords, { crap: 1, damn: 1 });
-});
-
-test("assistant messages never score frustration signals", () => {
-  const m = analyzeAssistantMessage("nope, you didn't run it. like i said, still doesnt work!!!");
-  assert.equal(m.negation, 0);
-  assert.equal(m.repetition, 0);
-  assert.equal(m.blame, 0);
-  assert.equal(m.anguish, 0);
-});
-
-test("assistant code blocks and inline code are ignored", () => {
-  const m = analyzeAssistantMessage("Use `damn_flag` here:\n```\n// this shit works\n```\nDone.");
-  assert.equal(m.profanity, 0);
-});

@@ -21,10 +21,10 @@ V2 uses `session_v2` and `session_message` in transcript sequence order.
 If both schemas contain a session ID, the v2 session takes precedence.
 Legacy-only sessions remain readable during partial migration.
 Both scopes skip synthetic content and count only root sessions.
-V2 scoring includes user text and top-level assistant text, not reasoning or nested tool output.
-V1 metrics use a database-specific cache keyed by row counts.
-That cache does not detect edits that leave row counts unchanged; delete the cache to force a fresh v1 global scan.
-V2 sessions bypass the cache so existing-row text updates remain visible.
+Scans ingest every user message into Mouth's state database (`stats.db`, table `user_messages`) with its stripped prose, prose hash, signal counts, model, provider, and timestamp.
+V1 sessions record a row-count fingerprint marker; unchanged sessions are skipped on later scans.
+The marker does not detect edits that leave row counts unchanged; delete the marker database to force a fresh v1 global scan.
+V2 sessions are always re-read so existing-row text updates remain visible.
 While the scan runs, a live progress bar keeps the dashboard responsive: the scan yields between batches so every batch paints immediately.
 
 ## Scoring
@@ -47,26 +47,62 @@ Signals for your messages:
 
 Friction is negation + repetition + blame.
 
-Signals for model replies: profanity and yelling only.
-The other signals are tuned for human tantrums and stay zero.
-
 ## The prose-length guard
 
 Upstream oh-my-pi zeroes every signal when a user message has three or more prose lines, on the theory that formatted prompts are deliberate, not emotional.
 
 Mouth keeps that guard for the emotional signals (yelling, anguish, negation, repetition, blame) but deliberately deviates for profanity: a swear in a long prompt is still a swear, so profanity counts in messages of any length.
-Model replies never had the guard.
+
+## Frustration and the judge
+
+The `/frustration` dashboard answers a narrower question than the signal
+breakdown: how often do your messages sound annoyed, and is the annoyance
+aimed at the assistant? It ports oh-my-pi's Frustration feature.
+
+Each user message with prose is classified once:
+
+- **Regex fallback** — annoyed when any signal fires, at assistant when
+  negation, repetition, or blame fires, angry when it is at the assistant
+  and contains profanity or yelling.
+- **Judge verdict** — when a cached verdict exists, annoyed means
+  P(level 2) + P(level 3) ≥ 0.5, at assistant additionally requires the
+  judge to name the assistant as the target, and angry requires
+  P(level 3) ≥ 0.5.
+
+Annoyed ⊇ at assistant ⊇ angry. Rows where fewer than half the messages
+have a verdict are flagged as mostly regex.
+
+### Judging
+
+Press `u` (or `m` to pick a different model) to judge every unjudged prose
+text in the range. Mouth quotes the estimated cost first, using the model's
+input and output prices. The run:
+
+- sends each unique prose text once, capped at 4000 characters;
+- runs 32 requests concurrently with up to 3 attempts per text;
+- stops early after 25 failures when nothing has succeeded;
+- stores each verdict by prose hash, so later runs skip judged text;
+- can be cancelled with `c`.
+
+Verdicts live in `frustration_verdicts`, and the stripped prose they cover
+lives with the ingested messages in Mouth's state database (`stats.db`).
+Pending texts and dashboard tallies are SQL queries over those tables.
+Nothing leaves your machine except the judge requests themselves, which go
+to the model you pick through OpenCode.
+
+On OpenCode v1 the judge runs in a temporary session with tools disabled
+and JSON-schema output. On OpenCode v2 it uses the host's generate API.
 
 ## Aggregation and filters
 
-Scoring produces one metric record per message: role, provider/model, timestamp, and counts.
-Every dashboard panel derives from those records in memory:
+Scoring ingests one row per user message into `stats.db`; every dashboard
+panel reads SQL over that table:
 
-- the time range filter keeps records newer than the cutoff
-- the model filter keeps one provider/model
+- the time range filter becomes a timestamp cutoff
+- the model tallies group by provider and model
 - the trend chart groups days into buckets so any range fits in 15 bars
 
-Changing the view, range, metric, or model filter never rescans.
+Changing the view or range never rescans.
 The scope toggle (`g`) is the exception: project, directory, and global read different session sets, so switching scope rescans from that source.
 
 ## Attribution

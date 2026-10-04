@@ -43,7 +43,7 @@ test("configured host exit shortcuts work while Mouth's mode is active", { skip:
         commands:commands.map(({id,run,...rest})=>({...rest,name:id,run})),
         bindings:bindings.flatMap(get)}));
     }}};
-    const unregister=v2Host(context).commands('mouth-behavior','mouth.behavior',()=>{},[]);
+    const unregister=v2Host(context).commands('mouth-behavior','mouth.behavior',()=>{},[],{id:'mouth.behavior.open',title:'Mouth: behavior dashboard',description:'Measure profanity and friction in your sessions',slash:'behavior'});
     try {
       h.keymap.setData('opencode.mode','base');h.host.press('x',{ctrl:true});assert.equal(exits,1);
       h.keymap.setData('opencode.mode','mouth.behavior');h.host.press('x',{ctrl:true});assert.equal(exits,2);

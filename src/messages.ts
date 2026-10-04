@@ -1,5 +1,15 @@
 import type { ModelRef, SessionMessageInfo } from "@opencode/client";
-import type { MessageSample } from "./aggregate.ts";
+
+/** One transcript message as the scanner consumes it. */
+export interface MessageSample {
+  /** Stable message id; unique within its session. */
+  messageId: string;
+  role: "user" | "assistant";
+  providerID: string;
+  modelID: string;
+  created: number;
+  text: string;
+}
 
 /** Read transcript order, not timestamps. Control messages never contribute text. */
 export function v2Samples(messages: readonly SessionMessageInfo[], fallback?: ModelRef): MessageSample[] {
@@ -17,7 +27,7 @@ export function v2Samples(messages: readonly SessionMessageInfo[], fallback?: Mo
       .map((part) => part.type === "text" ? part.text : "").join("\n");
     if (!text.trim()) continue;
     const model = message.type === "assistant" ? message.model : selected;
-    samples.push({ role: message.type, providerID: model?.providerID ?? "unknown", modelID: model?.id ?? "unknown", created: message.time.created, text });
+    samples.push({ messageId: message.id, role: message.type, providerID: model?.providerID ?? "unknown", modelID: model?.id ?? "unknown", created: message.time.created, text });
   }
   return samples;
 }

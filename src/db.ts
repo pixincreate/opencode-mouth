@@ -16,7 +16,7 @@
  */
 
 import { openDatabase, type Connection } from "./sqlite.ts";
-import type { MessageSample } from "./aggregate.ts";
+import type { MessageSample } from "./messages.ts";
 import type { ModelRef, SessionMessageInfo } from "@opencode/client";
 import { v2Samples } from "./messages.ts";
 
@@ -105,7 +105,7 @@ export function querySamples(sessions: readonly SessionRow[]): Map<string, Messa
     const text = texts.get(meta.id)?.join("\n");
     if (!text?.trim()) continue;
     const samples = out.get(meta.sessionId) ?? [];
-    samples.push({ role: meta.role, providerID: meta.providerID ?? "unknown", modelID: meta.modelID ?? "unknown", created: meta.created, text });
+    samples.push({ messageId: meta.id, role: meta.role, providerID: meta.providerID ?? "unknown", modelID: meta.modelID ?? "unknown", created: meta.created, text });
     out.set(meta.sessionId, samples);
   }
   for (const group of chunk(sessions.filter((session) => session.source === 2).map((session) => session.id))) {
