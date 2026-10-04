@@ -10,7 +10,7 @@
  */
 
 /** Where the user's annoyance is aimed. */
-export type FrustrationTarget = "assistant" | "other" | "none";
+type FrustrationTarget = "assistant" | "other" | "none";
 
 /** One cached judge classification, keyed by the prose hash it was made for. */
 export interface FrustrationVerdict {
@@ -38,14 +38,14 @@ export interface JudgeRequest {
 }
 
 /** Host-provided transport: one judge request in, the model's raw reply out. */
-export type JudgeTransport = (request: JudgeRequest) => Promise<string>;
+type JudgeTransport = (request: JudgeRequest) => Promise<string>;
 
 /**
  * The two questions asked about every prose text, in ONE judge request.
  * The cost constants below were measured upstream with exactly these strings;
  * changing them invalidates both the estimate and every cached verdict.
  */
-export const FRUSTRATION_QUESTIONS = {
+const FRUSTRATION_QUESTIONS = {
   annoyed: {
     instructions:
       "A user typed this message to an AI coding assistant (code blocks and markup were removed). Rate how frustrated or annoyed the user sounds. Judge tone and wording only (caps, swearing, 'again', 'why did you', 'stop', 'wtf', exasperation), not task difficulty. Plain instructions or questions are neutral.",
@@ -186,7 +186,7 @@ export function proseHash(text: string): string {
 }
 
 /** The exact prompt a judge model receives for one prose text. */
-export function buildJudgePrompt(prose: string): string {
+function buildJudgePrompt(prose: string): string {
   const levels = FRUSTRATION_QUESTIONS.annoyed.criteria.map((text, level) => `${level} = ${text}`);
   const criteria = FRUSTRATION_QUESTIONS.target.criteria;
   return [
@@ -207,7 +207,7 @@ export function buildJudgePrompt(prose: string): string {
   ].join("\n");
 }
 
-export interface JudgeAnswer {
+interface JudgeAnswer {
   annoyed: 0 | 1 | 2 | 3;
   target: FrustrationTarget;
 }
@@ -237,7 +237,7 @@ export function parseJudgeResponse(text: string): JudgeAnswer | undefined {
   return undefined;
 }
 
-export interface JudgeEstimate {
+interface JudgeEstimate {
   messages: number;
   chars: number;
   inputTokens: number;
@@ -254,7 +254,7 @@ export function estimateJudgeRun(pending: readonly PendingProse[], model: JudgeM
   return { messages: pending.length, chars, inputTokens, cost };
 }
 
-export type JudgeJobState = "idle" | "running" | "done" | "cancelled" | "failed";
+type JudgeJobState = "idle" | "running" | "done" | "cancelled" | "failed";
 
 /** Live status of one judge run. */
 export interface JudgeJobStatus {
@@ -283,7 +283,7 @@ export function idleJudgeJob(): JudgeJobStatus {
   };
 }
 
-export interface JudgeRunOptions {
+interface JudgeRunOptions {
   pending: readonly PendingProse[];
   model: JudgeModel;
   judge: JudgeTransport;

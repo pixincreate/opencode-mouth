@@ -541,7 +541,7 @@ export function stripStructuredContent(text: string): string {
 }
 
 /** Cap on the judge-facing prose stored per user message; longer prose is truncated. */
-export const PROSE_MAX_CHARS = 4000;
+const PROSE_MAX_CHARS = 4000;
 
 /**
  * Prose body a judge classifies: structured content stripped, whitespace

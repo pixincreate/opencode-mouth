@@ -14,7 +14,7 @@ import { openDatabase, transaction, type Connection } from "./sqlite.ts";
  * Below this judged share a row is mostly classified by the regex fallback;
  * the dashboard can hide or flag such rows.
  */
-export const MIN_JUDGED_SHARE = 0.5;
+const MIN_JUDGED_SHARE = 0.5;
 
 export interface FrustrationCounts {
   messages: number;
@@ -22,6 +22,11 @@ export interface FrustrationCounts {
   annoyed: number;
   atAssistant: number;
   angry: number;
+}
+
+/** All-zero tallies, for empty ranges and unavailable databases. */
+export function zeroCounts(): FrustrationCounts {
+  return { messages: 0, judged: 0, annoyed: 0, atAssistant: 0, angry: 0 };
 }
 
 export interface FrustrationModelStats extends FrustrationCounts {
@@ -60,7 +65,7 @@ export function isMostlyRegex(counts: FrustrationCounts): boolean {
 
 const STATE_DIR = process.env.MOUTH_INSTALL_STATE_DIR ?? `${process.env.HOME ?? ""}/.local/share/opencode-mouth`;
 
-export function statsPath(): string {
+function statsPath(): string {
   return join(STATE_DIR, "stats.db");
 }
 
@@ -232,7 +237,7 @@ const toCounts = (row: CountRow | undefined): FrustrationCounts => ({
 /** Overall frustration tallies for user messages with prose. Best-effort. */
 export function frustrationOverall(sinceMs?: number): FrustrationCounts {
   const db = open();
-  if (!db) return toCounts(undefined);
+  if (!db) return zeroCounts();
   const range = rangeClause(sinceMs);
   try {
     const row = db
@@ -244,7 +249,7 @@ export function frustrationOverall(sinceMs?: number): FrustrationCounts {
       .get(...range.params) as CountRow | undefined;
     return toCounts(row);
   } catch {
-    return toCounts(undefined);
+    return zeroCounts();
   }
 }
 
@@ -314,29 +319,5 @@ export function pendingProse(sinceMs?: number): PendingProse[] {
     return rows.map((row) => ({ hash: row.hash, prose: row.prose }));
   } catch {
     return [];
-  }
-}
-
-/** Pending unique message and character counts, for the cost quote. Best-effort. */
-export function pendingTotals(sinceMs?: number): { messages: number; chars: number } {
-  const db = open();
-  if (!db) return { messages: 0, chars: 0 };
-  const range = rangeClause(sinceMs);
-  try {
-    const row = db
-      .prepare(
-        `SELECT COUNT(*) AS messages, COALESCE(SUM(LENGTH(prose)), 0) AS chars
-         FROM (
-           SELECT u.prose_hash, MIN(u.prose) AS prose
-           FROM user_messages u
-           WHERE u.prose != ''${range.sql}
-             AND NOT EXISTS (SELECT 1 FROM frustration_verdicts v WHERE v.prose_hash = u.prose_hash)
-           GROUP BY u.prose_hash
-         )`,
-      )
-      .get(...range.params) as { messages: number; chars: number } | undefined;
-    return { messages: Number(row?.messages ?? 0), chars: Number(row?.chars ?? 0) };
-  } catch {
-    return { messages: 0, chars: 0 };
   }
 }

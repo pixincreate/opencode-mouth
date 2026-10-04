@@ -21,10 +21,14 @@ Test both hosts before releasing changes to the adapters.
 ## Layout
 
 - `src/metrics.ts`: behavior metric engine (oh-my-pi port)
-- `src/aggregate.ts`: pure aggregation with range and model filters
+- `src/judge.ts`: frustration judge prompt, parsing, and run engine (oh-my-pi port)
+- `src/scan.ts`: session scanning and stats ingestion
+- `src/stats-db.ts`: per-message stats and cached judge verdicts
+- `src/ui.tsx`: shared dashboard helpers and components
+- `src/frustration-tui.tsx`: the `/frustration` command and dashboard UI
 - `src/db.ts`: direct SQLite reader for OpenCode's database (global scope)
-- `src/cache.ts`: per-session metrics cache for the global scan
-- `src/tui.tsx`: the `/behavior` command and dashboard UI
+- `src/cache.ts`: per-session row-count fingerprints for the global scan
+- `src/tui.tsx`: the plugin entry point
 - `src/host.ts`: v1 and v2 host adapters
 - `src/messages.ts`: v2 transcript text and model attribution
 - `build.mjs`: bundles `dist/tui.js`
@@ -56,7 +60,7 @@ The tag triggers the release workflow, which attaches `tui.js` and the npm tarba
   The job name `ShellCheck, typecheck, build, and tests` is a required status check in the branch ruleset; do not rename it without updating the ruleset.
   A separate cross-platform job runs the suite on macOS and on the oldest supported Node.
 - `release.yml`: builds and publishes release artifacts on tags
-- `upstream-watch.yml`: weekly check of the oh-my-pi behavior feature.
+- `upstream-watch.yml`: weekly check of the oh-my-pi frustration/stats features.
   It compares the pinned SHAs in `upstream.json` against the latest upstream commits touching the tracked files and opens an issue with diff links when they drift.
   After porting upstream changes, update the pins.
 - `dependabot.yml`: weekly npm and GitHub Actions updates

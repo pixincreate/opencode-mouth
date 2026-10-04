@@ -41,11 +41,11 @@ function openDb(): Connection {
 const PARAM_CHUNK = 500;
 
 /** Build a `?,?,?` placeholder list for one IN clause. */
-export function placeholders(count: number): string {
+function placeholders(count: number): string {
   return Array.from({ length: count }, () => "?").join(",");
 }
 
-export function chunk<T>(items: readonly T[], size = PARAM_CHUNK): T[][] {
+function chunk<T>(items: readonly T[], size = PARAM_CHUNK): T[][] {
   const groups: T[][] = [];
   for (let i = 0; i < items.length; i += size) groups.push(items.slice(i, i + size));
   return groups;
@@ -124,7 +124,7 @@ export function querySamples(sessions: readonly SessionRow[]): Map<string, Messa
   return out;
 }
 
-export interface MessageMeta {
+interface MessageMeta {
   id: string;
   sessionId: string;
   role: string;
@@ -139,7 +139,7 @@ export interface MessageMeta {
  * Assistant messages carry top-level providerID/modelID; user messages nest
  * them under $.model instead (same shape the SDK path reads at tui.tsx).
  */
-export function queryMessageMetas(ids: readonly string[]): MessageMeta[] {
+function queryMessageMetas(ids: readonly string[]): MessageMeta[] {
   const conn = openDb();
   const out: MessageMeta[] = [];
   for (const group of chunk(ids)) {
@@ -167,15 +167,6 @@ export function queryMessageMetas(ids: readonly string[]): MessageMeta[] {
  * Text content per message id, parts joined in insertion order.
  *
  * Text parts cannot be told apart from the rest without parsing `data`, and
- * parsing every part blob costs seconds. Instead, read a 20-byte prefix of
- * each part (cheap: SQLite loads only the head of overflowed values), keep
- * the ones that start `{"type":"text"`, and fetch only those blobs back.
- * On a 200-session scan this reads ~10 MB of text instead of ~280 MB of JSON.
- */
-/**
- * Text content per message id, parts joined in insertion order.
- *
- * Text parts cannot be told apart from the rest without parsing `data`, and
  * parsing every part blob costs seconds. Instead, read a short prefix of
  * each part (cheap: SQLite loads only the head of overflowed values), keep
  * the ones that start with the text-part shape, and fetch only those blobs
@@ -185,7 +176,7 @@ export function queryMessageMetas(ids: readonly string[]): MessageMeta[] {
  * Synthetic and ignored parts are skipped so both scan paths count the same
  * messages as the SDK path does.
  */
-export function queryTextParts(ids: readonly string[]): Map<string, string[]> {
+function queryTextParts(ids: readonly string[]): Map<string, string[]> {
   const conn = openDb();
   const out = new Map<string, string[]>();
   for (const group of chunk(ids)) {

@@ -1,8 +1,8 @@
 name: Upstream watch
 
-# Watches the oh-my-pi behavior feature this plugin ports. When upstream
-# changes a tracked file, this opens (or updates) an issue asking to port
-# the change and bump the pinned SHA in upstream.json.
+# Watches the oh-my-pi frustration/stats features this plugin ports. When
+# upstream changes a tracked file, this opens (or updates) an issue asking
+# to port the change and bump the pinned SHA in upstream.json.
 
 on:
   schedule:
@@ -15,7 +15,7 @@ permissions:
 
 jobs:
   watch:
-    name: Check oh-my-pi behavior feature for changes
+    name: Check oh-my-pi frustration/stats features for changes
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
@@ -55,13 +55,13 @@ jobs:
             }
 
             if (drifted.length === 0) {
-              core.info("Upstream behavior feature is unchanged.");
+              core.info("Upstream frustration/stats features are unchanged.");
               return;
             }
 
-            const title = "Upstream oh-my-pi behavior feature changed";
+            const title = "Upstream oh-my-pi frustration/stats features changed";
             const lines = [
-              `Upstream [\`${pin.repo}\`](https://github.com/${pin.repo}) changed tracked behavior files.`,
+              `Upstream [\`${pin.repo}\`](https://github.com/${pin.repo}) changed tracked frustration/stats files.`,
               "",
               "| File | Pinned | Latest |",
               "| ---- | ------ | ------ |",

@@ -17,7 +17,7 @@ test("v2 restores the original home and session routes after dashboard navigatio
       const host = v2Host({ui:{router:{current:()=>route,navigate:r=>setRoute(reconcile(r))}}});
       for (let i=0;i<2;i++) {
         const back = host.current();
-        host.navigate('mouth-behavior');
+        host.navigate('mouth-frustration');
         back.restore();
         assert.deepEqual({...route}, original);
       }
@@ -43,10 +43,10 @@ test("configured host exit shortcuts work while Mouth's mode is active", { skip:
         commands:commands.map(({id,run,...rest})=>({...rest,name:id,run})),
         bindings:bindings.flatMap(get)}));
     }}};
-    const unregister=v2Host(context).commands('mouth-behavior','mouth.behavior',()=>{},[],{id:'mouth.behavior.open',title:'Mouth: behavior dashboard',description:'Measure profanity and friction in your sessions',slash:'behavior'});
+    const unregister=v2Host(context).commands('mouth-frustration','mouth.frustration',()=>{},[],{id:'mouth.frustration.open',title:'Mouth: frustration dashboard',description:'Judge how annoyed your messages sound',slash:'frustration'});
     try {
       h.keymap.setData('opencode.mode','base');h.host.press('x',{ctrl:true});assert.equal(exits,1);
-      h.keymap.setData('opencode.mode','mouth.behavior');h.host.press('x',{ctrl:true});assert.equal(exits,2);
+      h.keymap.setData('opencode.mode','mouth.frustration');h.host.press('x',{ctrl:true});assert.equal(exits,2);
       unregister();h.host.press('x',{ctrl:true});assert.equal(exits,2);
       h.keymap.setData('opencode.mode','base');h.host.press('x',{ctrl:true});assert.equal(exits,3);
     } finally {h.cleanup()}

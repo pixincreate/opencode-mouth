@@ -20,6 +20,7 @@ import {
   isMostlyRegex,
   pendingProse,
   saveVerdict,
+  zeroCounts,
   type FrustrationCounts,
   type FrustrationDay,
   type FrustrationModelStats,
@@ -98,7 +99,7 @@ function buildTrendBuckets(
   const buckets: FrustrationBucket[] = [];
   for (let i = 0; i < bucketCount; i++) {
     const bucketStart = start + i * daysPerBucket * dayMs;
-    const counts: FrustrationCounts = { messages: 0, judged: 0, annoyed: 0, atAssistant: 0, angry: 0 };
+    const counts = zeroCounts();
     for (let d = 0; d < daysPerBucket; d++) {
       const day = byKey.get(dayKeyOf(bucketStart + d * dayMs));
       if (!day) continue;
@@ -122,13 +123,7 @@ export async function setupFrustration(host: Host): Promise<void> {
   const [range, setRange] = createSignal<RangeKey>(opts.range);
   const [scope, setScope] = createSignal<Scope>(opts.scope);
   const [state, setState] = createSignal<LoadState>({ status: "idle" });
-  const [overall, setOverall] = createSignal<FrustrationCounts>({
-    messages: 0,
-    judged: 0,
-    annoyed: 0,
-    atAssistant: 0,
-    angry: 0,
-  });
+  const [overall, setOverall] = createSignal<FrustrationCounts>(zeroCounts());
   const [byModel, setByModel] = createSignal<FrustrationModelStats[]>([]);
   const [byDay, setByDay] = createSignal<FrustrationDay[]>([]);
   const [pending, setPending] = createSignal<PendingProse[]>([]);
@@ -273,6 +268,7 @@ export async function setupFrustration(host: Host): Promise<void> {
     { id: "mouth.frustration.judge", title: "Judge with model", group: "Mouth", bind: "u", run: () => void judgeNow() },
     { id: "mouth.frustration.model", title: "Pick judge model", group: "Mouth", bind: "m", run: () => void pickModel() },
     { id: "mouth.frustration.cancel", title: "Cancel judging", group: "Mouth", bind: "c", run: cancel },
+    { id: "mouth.frustration.regex", title: "Toggle regex rows", group: "Mouth", bind: "f", run: () => setHideRegex(!hideRegex()) },
     { id: "mouth.frustration.scope", title: "Toggle global scope", group: "Mouth", bind: "g", run: toggleGlobal },
     { id: "mouth.frustration.rescan", title: "Rescan sessions", group: "Mouth", bind: "r", run: () => void load() },
     ...RANGES.map((entry, index) => ({
@@ -340,9 +336,6 @@ export async function setupFrustration(host: Host): Promise<void> {
       byModel()
         .filter((row) => !hideRegex() || !isMostlyRegex(row))
         .slice(0, MAX_TABLE_ROWS);
-
-    const modelLine = (row: FrustrationModelStats): string =>
-      `${fmtRate(row.atAssistant, row.messages)} at assistant · ${fmtInt(row.judged)}/${fmtInt(row.messages)} judged`;
 
     const stacked = (row: FrustrationModelStats) => {
       const total = Math.max(1, row.messages);

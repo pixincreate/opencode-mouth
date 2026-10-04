@@ -237,7 +237,7 @@ install_release() {
 
   log "Installed plugin to ${plugin_file}"
   log "Configured OpenCode TUI plugin in ${config_file}"
-  log "Restart OpenCode and run /behavior"
+  log "Restart OpenCode and run /frustration"
 }
 
 install_clone() {
@@ -256,7 +256,7 @@ install_clone() {
   if [[ "$opencode_version" == 2 ]]; then write_plugin_config "${repo_dir}/dist"; else write_plugin_config "${repo_dir}/dist/tui.js"; fi
 
   log "Configured local OpenCode TUI plugin in ${config_file}"
-  log "Restart OpenCode and run /behavior"
+  log "Restart OpenCode and run /frustration"
 }
 
 uninstall() {

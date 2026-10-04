@@ -8,11 +8,11 @@ import type { Palette as ThemePalette } from "./theme.ts";
 
 export type Palette = () => ThemePalette;
 
-export type ColorToken = "primary" | "accent" | "error" | "warning" | "info" | "success" | "text" | "textMuted";
+type ColorToken = "primary" | "accent" | "error" | "warning" | "info" | "success" | "text" | "textMuted";
 
 // --- options ----------------------------------------------------------------
 
-export const DEFAULT_SESSION_LIMIT = 200;
+const DEFAULT_SESSION_LIMIT = 200;
 
 export const RANGES = [
   { key: "24h", label: "24h", ms: 24 * 60 * 60 * 1000 },
@@ -84,12 +84,6 @@ export const clip = (text: string, width: number): string =>
 export const shortenPath = (path: string): string => {
   const home = process.env.HOME;
   return home && path.startsWith(`${home}/`) ? `~${path.slice(home.length)}` : path;
-};
-
-export const bar = (ratio: number, width: number): { fill: string; rest: string } => {
-  const clamped = Math.max(0, Math.min(1, ratio));
-  const cells = clamped > 0 ? Math.max(1, Math.round(clamped * width)) : 0;
-  return { fill: "█".repeat(cells), rest: "░".repeat(width - cells) };
 };
 
 // --- components -------------------------------------------------------------

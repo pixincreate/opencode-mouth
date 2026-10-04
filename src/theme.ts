@@ -9,7 +9,7 @@
 import type { RGBA } from "@opentui/core";
 import type { Context } from "@opencode/plugin/tui/context";
 
-export type Theme = Context["theme"];
+type Theme = Context["theme"];
 
 export interface Palette {
   border: RGBA;

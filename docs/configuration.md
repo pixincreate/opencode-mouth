@@ -28,8 +28,8 @@ On OpenCode v2, use a plugin object in `~/.config/opencode/cli.json`:
 
 The config value is only the starting scope: pressing `g` in the dashboard toggles between the global scope and the scope you started in, rescanning each time.
 
-V1 global scans cache per-session metrics under `global-cache/` in the mouth state directory (`MOUTH_INSTALL_STATE_DIR`, default `~/.local/share/opencode-mouth`).
-Delete that directory to discard cached metrics.
+V1 global scans cache per-session row-count fingerprints under `global-cache/` in the mouth state directory (`MOUTH_INSTALL_STATE_DIR`, default `~/.local/share/opencode-mouth`).
+Metrics live in `stats.db`, not in the cache.
 V2 sessions bypass the cache so rescans include text updates that do not add rows.
 
 ## Manual install

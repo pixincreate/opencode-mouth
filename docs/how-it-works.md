@@ -45,7 +45,7 @@ Signals for your messages:
 | Repetition | `like i said`, `i already told you`, `still doesnt`           |
 | Blame      | `you didn't`, `why did you`, sentence-leading `stop X-ing`    |
 
-Friction is negation + repetition + blame.
+The regex at-assistant rule is negation + repetition + blame.
 
 ## The prose-length guard
 
