@@ -398,6 +398,9 @@ export async function setupFrustration(host: Host): Promise<void> {
                 {fmtCost(currentJob.cost)}
               </text>
             </Show>
+            <Show when={currentJob.error}>
+              <text fg={th().error}>{clip(currentJob.error!, 240)}</text>
+            </Show>
           </Show>
         </Panel>
       );
