@@ -74,7 +74,17 @@ const REQUEST_OVERHEAD_TOKENS = 561;
 const CHARS_PER_TOKEN = 5.9;
 /** Output tokens a prompted chat judge bills per request. */
 const OUTPUT_TOKENS_PER_REQUEST = 8;
-const RUN_CONCURRENCY = 32;
+/** In-flight requests a run starts with; adapts between the min and max as the judge answers. */
+const INITIAL_CONCURRENCY = 32;
+const MIN_CONCURRENCY = 4;
+const MAX_CONCURRENCY = 256;
+/** Wait before the second attempt at a text; doubles for the third. */
+const RETRY_DELAY_MS = 250;
+/** Ignore failures for this long after halving concurrency once. */
+const BACKOFF_COOLDOWN_MS = 2000;
+/** Verdicts buffer until this many are pending, or until the flush timer fires. */
+const VERDICT_BATCH = 64;
+const VERDICT_FLUSH_MS = 500;
 const ATTEMPTS_PER_TEXT = 3;
 /** Stop the run when this many texts failed before any succeeded: the judge is not working. */
 const CIRCUIT_BREAKER_FAILURES = 25;
@@ -267,6 +277,8 @@ export interface JudgeJobStatus {
   error: string | null;
   startedAt: number | null;
   finishedAt: number | null;
+  /** Judge requests the run currently keeps in flight (adapts to the judge's rate limits). */
+  concurrency: number;
 }
 
 export function idleJudgeJob(): JudgeJobStatus {
@@ -280,6 +292,7 @@ export function idleJudgeJob(): JudgeJobStatus {
     error: null,
     startedAt: null,
     finishedAt: null,
+    concurrency: 0,
   };
 }
 
@@ -287,7 +300,7 @@ interface JudgeRunOptions {
   pending: readonly PendingProse[];
   model: JudgeModel;
   judge: JudgeTransport;
-  save: (verdict: FrustrationVerdict) => void;
+  save: (verdicts: FrustrationVerdict[]) => void;
   signal: AbortSignal;
   onProgress?: (job: JudgeJobStatus) => void;
 }
@@ -306,10 +319,37 @@ function shuffle<T>(items: T[]): T[] {
 }
 
 /**
- * Judge every pending text, at most {@link RUN_CONCURRENCY} in flight, with
- * {@link ATTEMPTS_PER_TEXT} attempts per text. Aborts via the caller's signal
- * (cancel) or the circuit breaker (a judge that fails everything). Verdicts
- * land through `save` as they arrive; progress goes through `onProgress`.
+ * Concurrency that adapts to the judge's rate limits: grow slowly, and halve
+ * (at most once per {@link BACKOFF_COOLDOWN_MS}) when a request fails.
+ */
+class AdaptiveLimit {
+  #limit = INITIAL_CONCURRENCY;
+  #slowStart = true;
+  #lastBackoff = 0;
+
+  get value(): number {
+    return Math.floor(this.#limit);
+  }
+
+  succeeded(): void {
+    this.#limit = Math.min(MAX_CONCURRENCY, this.#limit + (this.#slowStart ? 1 : 4 / this.#limit));
+  }
+
+  failed(): void {
+    this.#slowStart = false;
+    const now = Date.now();
+    if (now - this.#lastBackoff < BACKOFF_COOLDOWN_MS) return;
+    this.#lastBackoff = now;
+    this.#limit = Math.max(MIN_CONCURRENCY, this.#limit / 2);
+  }
+}
+
+/**
+ * Judge every pending text with an adaptive pool of at most
+ * {@link MAX_CONCURRENCY} in flight and {@link ATTEMPTS_PER_TEXT} attempts per
+ * text. Aborts via the caller's signal (cancel) or the circuit breaker (a judge
+ * that fails everything). Verdicts buffer and land through `save` in batches;
+ * progress goes through `onProgress`.
  */
 export async function runJudge(options: JudgeRunOptions): Promise<JudgeJobStatus> {
   const { pending, model, judge, save, signal, onProgress } = options;
@@ -327,6 +367,7 @@ export async function runJudge(options: JudgeRunOptions): Promise<JudgeJobStatus
     error: null,
     startedAt: Date.now(),
     finishedAt: null,
+    concurrency: 0,
   };
   if (pending.length === 0) {
     job.state = "done";
@@ -334,9 +375,45 @@ export async function runJudge(options: JudgeRunOptions): Promise<JudgeJobStatus
     return job;
   }
   const queue = shuffle([...pending]);
+  const limit = new AdaptiveLimit();
   let next = 0;
+  let inFlight = 0;
   let tripped = false;
   let lastError: string | null = null;
+
+  // Verdicts buffer and flush in one batch write; a timer flush failure stops the run.
+  let buffered: FrustrationVerdict[] = [];
+  let flushTimer: ReturnType<typeof setTimeout> | undefined;
+  const flush = (): void => {
+    if (flushTimer !== undefined) {
+      clearTimeout(flushTimer);
+      flushTimer = undefined;
+    }
+    if (buffered.length === 0) return;
+    const batch = buffered;
+    buffered = [];
+    save(batch);
+  };
+  const crash = (error: unknown): void => {
+    if (tripped) return;
+    tripped = true;
+    lastError = errorMessage(error);
+    controller.abort(error instanceof Error ? error : new Error(lastError));
+  };
+  const record = (verdict: FrustrationVerdict): void => {
+    buffered.push(verdict);
+    if (buffered.length >= VERDICT_BATCH) {
+      flush();
+      return;
+    }
+    flushTimer ??= setTimeout(() => {
+      try {
+        flush();
+      } catch (error) {
+        crash(error);
+      }
+    }, VERDICT_FLUSH_MS);
+  };
 
   const requestCost = (chars: number): number =>
     ((REQUEST_OVERHEAD_TOKENS + Math.ceil(chars / CHARS_PER_TOKEN)) * model.inputCost) / 1e6 +
@@ -345,12 +422,15 @@ export async function runJudge(options: JudgeRunOptions): Promise<JudgeJobStatus
   const judgeText = async (item: PendingProse): Promise<void> => {
     for (let attempt = 1; attempt <= ATTEMPTS_PER_TEXT; attempt++) {
       if (controller.signal.aborted) return;
+      if (attempt > 1) await new Promise((resolve) => setTimeout(resolve, RETRY_DELAY_MS * (attempt - 1)));
+      if (controller.signal.aborted) return;
       try {
         const reply = await judge({ model, prompt: buildJudgePrompt(item.prose), signal: controller.signal });
         if (controller.signal.aborted) return;
         const answer = parseJudgeResponse(reply);
         if (!answer) throw new Error("judge reply was not valid JSON");
-        save({
+        limit.succeeded();
+        record({
           proseHash: item.hash,
           pAnnoyed: answer.annoyed >= 2 ? 1 : 0,
           pAngry: answer.annoyed === 3 ? 1 : 0,
@@ -364,6 +444,7 @@ export async function runJudge(options: JudgeRunOptions): Promise<JudgeJobStatus
         return;
       } catch (error) {
         if (controller.signal.aborted) return;
+        limit.failed();
         lastError = errorMessage(error);
       }
     }
@@ -375,11 +456,32 @@ export async function runJudge(options: JudgeRunOptions): Promise<JudgeJobStatus
     }
   };
 
-  const worker = async (): Promise<void> => {
-    while (!controller.signal.aborted && next < queue.length) await judgeText(queue[next++]);
+  let resolveDrained: () => void = () => {};
+  const drained = new Promise<void>((resolve) => {
+    resolveDrained = resolve;
+  });
+  const pump = (): void => {
+    while (!controller.signal.aborted && inFlight < limit.value && next < queue.length) {
+      const item = queue[next++];
+      inFlight++;
+      judgeText(item)
+        .catch(crash)
+        .finally(() => {
+          inFlight--;
+          pump();
+        });
+    }
+    job.concurrency = limit.value;
+    if (inFlight === 0 && (controller.signal.aborted || next >= queue.length)) resolveDrained();
   };
+  pump();
+  await drained;
+  try {
+    flush();
+  } catch (error) {
+    crash(error);
+  }
 
-  await Promise.all(Array.from({ length: Math.min(RUN_CONCURRENCY, queue.length) }, worker));
   if (tripped) {
     job.state = "failed";
     job.error = lastError;

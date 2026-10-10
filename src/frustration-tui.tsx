@@ -11,6 +11,7 @@
 import type { ScrollBoxRenderable } from "@opentui/core";
 import { useTerminalDimensions } from "@opentui/solid";
 import { For, Match, Show, Switch, createEffect, createMemo, createSignal, onCleanup } from "solid-js";
+import { mergeModelRows, type MergedModelRow } from "./catalog.ts";
 import type { Host } from "./host.ts";
 import { scan, yieldToUI, type LoadState, type ScanResult } from "./scan.ts";
 import {
@@ -19,7 +20,7 @@ import {
   frustrationOverall,
   isMostlyRegex,
   pendingProse,
-  saveVerdict,
+  saveVerdicts,
   zeroCounts,
   type FrustrationCounts,
   type FrustrationDay,
@@ -224,7 +225,7 @@ export async function setupFrustration(host: Host): Promise<void> {
       model: current,
       signal: controller.signal,
       judge: (request) => host.judge(request),
-      save: (verdict) => saveVerdict(verdict),
+      save: saveVerdicts,
       onProgress: (progress) => setJob({ ...progress }),
     });
     setJob(final);
@@ -332,12 +333,14 @@ export async function setupFrustration(host: Host): Promise<void> {
       ];
     };
 
-    const modelRows = (): FrustrationModelStats[] =>
-      byModel()
+    const mergedModels = (): MergedModelRow[] => mergeModelRows(byModel());
+
+    const modelRows = (): MergedModelRow[] =>
+      mergedModels()
         .filter((row) => !hideRegex() || !isMostlyRegex(row))
         .slice(0, MAX_TABLE_ROWS);
 
-    const stacked = (row: FrustrationModelStats) => {
+    const stacked = (row: FrustrationCounts) => {
       const total = Math.max(1, row.messages);
       const angry = Math.round((row.angry / total) * BAR_WIDTH);
       const mid = Math.round(((row.atAssistant - row.angry) / total) * BAR_WIDTH);
@@ -369,6 +372,14 @@ export async function setupFrustration(host: Host): Promise<void> {
                   <text fg={th().accent}>
                     {fmtInt(currentJob.done)}/{fmtInt(currentJob.total)} judged · {fmtInt(currentJob.failed)} failed
                   </text>
+                  <Show when={currentJob.startedAt !== null && currentJob.done > 0}>
+                    <text fg={th().textMuted}>
+                      {fmtInt(Math.round(currentJob.done / Math.max(1, (Date.now() - currentJob.startedAt!) / 1000)))}/s
+                    </text>
+                  </Show>
+                  <Show when={currentJob.concurrency > 0}>
+                    <text fg={th().textMuted}>{fmtInt(currentJob.concurrency)} in flight</text>
+                  </Show>
                   <Chip label="cancel" active={false} th={th} onPick={cancel} />
                 </box>
               </Match>
@@ -450,7 +461,7 @@ export async function setupFrustration(host: Host): Promise<void> {
               const parts = stacked(row);
               return (
                 <box flexDirection="row">
-                  <text fg={th().text}>{clip(`${row.provider}/${row.model}`, nameWidth - 1).padEnd(nameWidth)}</text>
+                  <text fg={th().text}>{clip(row.label, nameWidth - 1).padEnd(nameWidth)}</text>
                   <text fg={th().error}>{"█".repeat(parts.angry)}</text>
                   <text fg={th().warning}>{"█".repeat(parts.mid)}</text>
                   <text fg={th().info}>{"█".repeat(parts.other)}</text>
@@ -467,8 +478,8 @@ export async function setupFrustration(host: Host): Promise<void> {
               );
             }}
           </For>
-          <Show when={byModel().length > rows.length}>
-            <text fg={th().textMuted}>… {fmtInt(byModel().length - rows.length)} more models</text>
+          <Show when={mergedModels().length > rows.length}>
+            <text fg={th().textMuted}>… {fmtInt(mergedModels().length - rows.length)} more models</text>
           </Show>
         </Panel>
       );

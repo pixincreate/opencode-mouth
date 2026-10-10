@@ -49,7 +49,7 @@ test("runJudge saves verdicts and reports progress", async () => {
     model,
     signal: new AbortController().signal,
     judge: async () => '{"annoyed":3,"target":"assistant"}',
-    save: (verdict) => saved.push(verdict),
+    save: (verdicts) => saved.push(...verdicts),
     onProgress: (status) => progress.push(status.done),
   });
   assert.equal(job.state, "done");
@@ -78,4 +78,39 @@ test("runJudge counts exhausted retries as failures", async () => {
   assert.equal(job.state, "done");
   assert.equal(job.done, 0);
   assert.equal(job.failed, 1);
+});
+
+test("runJudge adapts concurrency, rides out rate limits, and persists every verdict", async () => {
+  const pending: PendingProse[] = Array.from({ length: 400 }, (_, index) => ({
+    hash: `h${index}`,
+    prose: `text ${index}`,
+  }));
+  const saved = new Set<string>();
+  let inFlight = 0;
+  let maxInFlight = 0;
+  const job = await runJudge({
+    pending,
+    model,
+    signal: new AbortController().signal,
+    judge: async () => {
+      inFlight++;
+      maxInFlight = Math.max(maxInFlight, inFlight);
+      try {
+        if (inFlight > 64) throw new Error("429 rate limited");
+        await new Promise((resolve) => setTimeout(resolve, 5));
+        return '{"annoyed":2,"target":"assistant"}';
+      } finally {
+        inFlight--;
+      }
+    },
+    save: (verdicts) => {
+      for (const verdict of verdicts) saved.add(verdict.proseHash);
+    },
+  });
+  assert.equal(job.state, "done");
+  assert.equal(job.total, 400);
+  assert.equal(job.done, 400);
+  assert.equal(job.failed, 0);
+  assert.ok(maxInFlight > 32);
+  assert.equal(saved.size, 400);
 });
