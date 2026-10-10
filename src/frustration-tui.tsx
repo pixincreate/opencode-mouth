@@ -11,6 +11,7 @@
 import type { ScrollBoxRenderable } from "@opentui/core";
 import { useTerminalDimensions } from "@opentui/solid";
 import { For, Match, Show, Switch, createEffect, createMemo, createSignal, onCleanup } from "solid-js";
+import { mergeModelRows, type MergedModelRow } from "./catalog.ts";
 import type { Host } from "./host.ts";
 import { scan, yieldToUI, type LoadState, type ScanResult } from "./scan.ts";
 import {
@@ -332,12 +333,14 @@ export async function setupFrustration(host: Host): Promise<void> {
       ];
     };
 
-    const modelRows = (): FrustrationModelStats[] =>
-      byModel()
+    const mergedModels = (): MergedModelRow[] => mergeModelRows(byModel());
+
+    const modelRows = (): MergedModelRow[] =>
+      mergedModels()
         .filter((row) => !hideRegex() || !isMostlyRegex(row))
         .slice(0, MAX_TABLE_ROWS);
 
-    const stacked = (row: FrustrationModelStats) => {
+    const stacked = (row: FrustrationCounts) => {
       const total = Math.max(1, row.messages);
       const angry = Math.round((row.angry / total) * BAR_WIDTH);
       const mid = Math.round(((row.atAssistant - row.angry) / total) * BAR_WIDTH);
@@ -450,7 +453,7 @@ export async function setupFrustration(host: Host): Promise<void> {
               const parts = stacked(row);
               return (
                 <box flexDirection="row">
-                  <text fg={th().text}>{clip(`${row.provider}/${row.model}`, nameWidth - 1).padEnd(nameWidth)}</text>
+                  <text fg={th().text}>{clip(row.label, nameWidth - 1).padEnd(nameWidth)}</text>
                   <text fg={th().error}>{"█".repeat(parts.angry)}</text>
                   <text fg={th().warning}>{"█".repeat(parts.mid)}</text>
                   <text fg={th().info}>{"█".repeat(parts.other)}</text>
@@ -467,8 +470,8 @@ export async function setupFrustration(host: Host): Promise<void> {
               );
             }}
           </For>
-          <Show when={byModel().length > rows.length}>
-            <text fg={th().textMuted}>… {fmtInt(byModel().length - rows.length)} more models</text>
+          <Show when={mergedModels().length > rows.length}>
+            <text fg={th().textMuted}>… {fmtInt(mergedModels().length - rows.length)} more models</text>
           </Show>
         </Panel>
       );
