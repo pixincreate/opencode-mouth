@@ -55,6 +55,8 @@
   "overrides": {
     "@opentui/solid": {
       "@babel/core": "^7.29.6"
-    }
+    },
+    "seroval": "1.6.9",
+    "seroval-plugins": "1.6.9"
   }
 }
