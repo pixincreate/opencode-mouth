@@ -176,25 +176,36 @@ export function saveUserMessages(rows: readonly UserMessageRow[]): void {
   }
 }
 
-/** Cache one judge verdict, keyed by prose hash. Best-effort. */
-export function saveVerdict(verdict: FrustrationVerdict): void {
+/** Cache judge verdicts in one transaction, keyed by prose hash. Best-effort. */
+export function saveVerdicts(verdicts: readonly FrustrationVerdict[]): void {
+  if (verdicts.length === 0) return;
   const db = open();
   if (!db) return;
   try {
-    db.prepare(
-      `INSERT OR REPLACE INTO frustration_verdicts (prose_hash, p_annoyed, p_angry, target, judge, judged_at)
-       VALUES (?, ?, ?, ?, ?, ?)`,
-    ).run(
-      verdict.proseHash,
-      verdict.pAnnoyed,
-      verdict.pAngry,
-      verdict.target,
-      verdict.judge,
-      verdict.judgedAt,
-    );
+    transaction(db, () => {
+      const statement = db.prepare(
+        `INSERT OR REPLACE INTO frustration_verdicts (prose_hash, p_annoyed, p_angry, target, judge, judged_at)
+         VALUES (?, ?, ?, ?, ?, ?)`,
+      );
+      for (const verdict of verdicts) {
+        statement.run(
+          verdict.proseHash,
+          verdict.pAnnoyed,
+          verdict.pAngry,
+          verdict.target,
+          verdict.judge,
+          verdict.judgedAt,
+        );
+      }
+    });
   } catch {
     // Best-effort: a lost verdict only means the message is judged again.
   }
+}
+
+/** Cache one judge verdict. Best-effort. */
+export function saveVerdict(verdict: FrustrationVerdict): void {
+  saveVerdicts([verdict]);
 }
 
 function rangeClause(sinceMs: number | undefined): { sql: string; params: number[] } {

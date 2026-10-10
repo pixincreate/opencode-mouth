@@ -3,8 +3,8 @@
   "comment": "Pinned upstream commits for the oh-my-pi frustration/stats features this plugin ports. The upstream-watch workflow compares these against the latest commit touching each path and opens an issue when they drift. After porting upstream changes, update the pinned SHAs.",
   "paths": {
     "packages/stats/src/user-metrics.ts": "dfbf3cc34eeb5653580f51bfbcae558a9840f697",
-    "packages/stats/src/client/routes/FrustrationRoute.tsx": "dfbf3cc34eeb5653580f51bfbcae558a9840f697",
-    "packages/stats/src/frustration.ts": "dfbf3cc34eeb5653580f51bfbcae558a9840f697",
+    "packages/stats/src/client/routes/FrustrationRoute.tsx": "3bf099f73b54d5d1585f5a866e633ee9db979e50",
+    "packages/stats/src/frustration.ts": "3bf099f73b54d5d1585f5a866e633ee9db979e50",
     "packages/catalog/src/compat/revision.ts": "b07a1c146d0d12cfc855a2c65d52f892ef319040",
     "packages/catalog/src/compat/taxonomy.ts": "b07a1c146d0d12cfc855a2c65d52f892ef319040",
     "packages/catalog/src/compat/rules/taxonomy/deepseek.kdl": "b07a1c146d0d12cfc855a2c65d52f892ef319040"

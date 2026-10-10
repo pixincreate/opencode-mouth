@@ -20,7 +20,7 @@ import {
   frustrationOverall,
   isMostlyRegex,
   pendingProse,
-  saveVerdict,
+  saveVerdicts,
   zeroCounts,
   type FrustrationCounts,
   type FrustrationDay,
@@ -225,7 +225,7 @@ export async function setupFrustration(host: Host): Promise<void> {
       model: current,
       signal: controller.signal,
       judge: (request) => host.judge(request),
-      save: (verdict) => saveVerdict(verdict),
+      save: saveVerdicts,
       onProgress: (progress) => setJob({ ...progress }),
     });
     setJob(final);
@@ -372,6 +372,14 @@ export async function setupFrustration(host: Host): Promise<void> {
                   <text fg={th().accent}>
                     {fmtInt(currentJob.done)}/{fmtInt(currentJob.total)} judged · {fmtInt(currentJob.failed)} failed
                   </text>
+                  <Show when={currentJob.startedAt !== null && currentJob.done > 0}>
+                    <text fg={th().textMuted}>
+                      {fmtInt(Math.round(currentJob.done / Math.max(1, (Date.now() - currentJob.startedAt!) / 1000)))}/s
+                    </text>
+                  </Show>
+                  <Show when={currentJob.concurrency > 0}>
+                    <text fg={th().textMuted}>{fmtInt(currentJob.concurrency)} in flight</text>
+                  </Show>
                   <Chip label="cancel" active={false} th={th} onPick={cancel} />
                 </box>
               </Match>
