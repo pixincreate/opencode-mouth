@@ -4,6 +4,22 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+## [2.1.0] - 2026-10-10
+
+### Added
+
+- Model rows merge by catalog identity (class/family/revision) using a reviewed subset of the pi-catalog taxonomy rules; DeepSeek V4 Flash variants from different providers now share one row, matching upstream's grouping (can1357/oh-my-pi#14199).
+- The judge adapts concurrency from 32 up to 256 requests, retries with a 250 ms backoff, batches verdict writes (64 per transaction or every 500 ms), and shows a rate and in-flight count while judging.
+
+### Changed
+
+- Refreshed @opentui packages to 0.5.17 and the remaining Dependabot bumps; solid-js updates are ignored while @opentui/solid pins it to exactly 1.9.12.
+
+### Fixed
+
+- The v2 judge sends the system prompt with the prompt text.
+- Forced seroval and seroval-plugins to 1.6.9 for GHSA-p6vx-979v-rg4c (critical).
+
 ## [2.0.0] - 2026-10-04
 
 ### Added
