@@ -52,3 +52,36 @@ test("configured host exit shortcuts work while Mouth's mode is active", { skip:
     } finally {h.cleanup()}
   `));
 });
+
+test("v2 judge sends the system prompt and forwards the model and signal", { skip: !supported }, () => {
+  assert.doesNotThrow(() => run(`
+    import assert from 'node:assert/strict';
+    import {v2Host} from './src/host.ts';
+    import {JUDGE_SYSTEM_PROMPT} from './src/judge.ts';
+    let seen;
+    const controller = new AbortController();
+    const context = {
+      options: {},
+      theme: {},
+      client: {
+        generate: {
+          text: async (input, requestOptions) => {
+            seen = {input, requestOptions};
+            return {text: '{"annoyed":2,"target":"assistant"}'};
+          },
+        },
+      },
+    };
+    const main = async () => {
+      const host = v2Host(context);
+      const reply = await host.judge({model:{providerID:'test',modelID:'judge'},prompt:'hello',signal:controller.signal});
+      assert.equal(reply, '{"annoyed":2,"target":"assistant"}');
+      assert.deepEqual(seen.input, {
+        prompt: JUDGE_SYSTEM_PROMPT + '\\n\\nhello',
+        model: {id: 'judge', providerID: 'test'},
+      });
+      assert.equal(seen.requestOptions.signal, controller.signal);
+    };
+    main().catch((error) => { console.error(error); process.exit(1); });
+  `));
+});

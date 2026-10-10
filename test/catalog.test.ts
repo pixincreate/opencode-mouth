@@ -54,6 +54,13 @@ test("classifyModel covers the other catalog classes", () => {
     revision: "3.0.0",
   });
   assert.deepEqual(classifyModel("openai", "codex-mini"), { modelClass: "openai", family: "codex" });
+  assert.deepEqual(classifyModel("openai", "gpt-4"), {
+    modelClass: "openai",
+    family: "gpt",
+    revision: "4.0.0",
+  });
+  assert.deepEqual(classifyModel("openai", "gpt-4o"), { modelClass: "openai", family: "gpt" });
+  assert.deepEqual(classifyModel("openai", "custom-gpt-5.2"), { modelClass: "unknown" });
   assert.deepEqual(classifyModel("google", "gemini-2.5-flash"), {
     modelClass: "gemini",
     family: "flash",
@@ -113,4 +120,17 @@ test("mergeModelRows groups unclassified rows by raw model id and sums counts", 
   assert.equal(merged[0].key, "mystery-model");
   assert.equal(merged[0].label, "mystery-model");
   assert.equal(merged[0].messages, 5);
+});
+
+test("mergeModelRows keeps letter-suffixed models apart from their numeric siblings", () => {
+  const merged = mergeModelRows([
+    row("gpt-4", "openai"),
+    row("gpt-4o", "openai"),
+    row("custom-gpt-5.2", "openai"),
+  ]);
+  assert.deepEqual(
+    merged.map((entry) => entry.key).sort(),
+    ["custom-gpt-5.2", "gpt-4o", "openai/gpt/4.0.0"],
+  );
+  assert.equal(merged.find((entry) => entry.key === "openai/gpt/4.0.0")?.label, "gpt 4");
 });

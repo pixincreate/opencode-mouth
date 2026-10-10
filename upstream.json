@@ -7,6 +7,16 @@
     "packages/stats/src/frustration.ts": "3bf099f73b54d5d1585f5a866e633ee9db979e50",
     "packages/catalog/src/compat/revision.ts": "b07a1c146d0d12cfc855a2c65d52f892ef319040",
     "packages/catalog/src/compat/taxonomy.ts": "b07a1c146d0d12cfc855a2c65d52f892ef319040",
-    "packages/catalog/src/compat/rules/taxonomy/deepseek.kdl": "b07a1c146d0d12cfc855a2c65d52f892ef319040"
+    "packages/catalog/src/compat/rules/taxonomy/deepseek.kdl": "b07a1c146d0d12cfc855a2c65d52f892ef319040",
+    "packages/catalog/src/compat/rules/taxonomy/anthropic.kdl": "b07a1c146d0d12cfc855a2c65d52f892ef319040",
+    "packages/catalog/src/compat/rules/taxonomy/openai.kdl": "b07a1c146d0d12cfc855a2c65d52f892ef319040",
+    "packages/catalog/src/compat/rules/taxonomy/gemini.kdl": "b07a1c146d0d12cfc855a2c65d52f892ef319040",
+    "packages/catalog/src/compat/rules/taxonomy/xai.kdl": "b07a1c146d0d12cfc855a2c65d52f892ef319040",
+    "packages/catalog/src/compat/rules/taxonomy/qwen.kdl": "b07a1c146d0d12cfc855a2c65d52f892ef319040",
+    "packages/catalog/src/compat/rules/taxonomy/kimi.kdl": "b07a1c146d0d12cfc855a2c65d52f892ef319040",
+    "packages/catalog/src/compat/rules/taxonomy/glm.kdl": "b07a1c146d0d12cfc855a2c65d52f892ef319040",
+    "packages/catalog/src/compat/rules/taxonomy/minimax.kdl": "b07a1c146d0d12cfc855a2c65d52f892ef319040",
+    "packages/catalog/src/compat/rules/taxonomy/mistral.kdl": "b07a1c146d0d12cfc855a2c65d52f892ef319040",
+    "packages/catalog/src/compat/rules/taxonomy/meta.kdl": "b07a1c146d0d12cfc855a2c65d52f892ef319040"
   }
 }

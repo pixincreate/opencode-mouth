@@ -59,7 +59,8 @@ function parseRevision(value: string): [number, number, number] | undefined {
 /**
  * Parse a version that starts at the first character and stop at the first
  * segment that is not a version component. Dates and billing suffixes are
- * ignored, and size tokens like "32b" never become a revision.
+ * ignored, and a digit run followed by any ASCII letter (size or product
+ * tokens like "32b" or "4o") never becomes a revision component.
  */
 function parseRevisionPrefix(value: string): [number, number, number] | undefined {
   if (!/^[0-9]/.test(value)) return undefined;
@@ -70,7 +71,7 @@ function parseRevisionPrefix(value: string): [number, number, number] | undefine
     while (index < value.length && value.charAt(index) >= "0" && value.charAt(index) <= "9") index++;
     if (index === start) break;
     const next = value.charAt(index);
-    if (next === "b" || next === "B") break;
+    if (/[A-Za-z]/.test(next)) break;
     const component = parseComponent(value.slice(start, index));
     if (component === undefined) break;
     parsed.push(component);
@@ -383,7 +384,8 @@ export function classifyModel(provider: string, model: string, options?: { lenie
       return { ...override.identity };
     }
   }
-  const candidates = [...new Set([bare, input, providerID, `${providerID}/${input}`])];
+  // Score only the model forms; the provider scopes overrides, not class evidence.
+  const candidates = [...new Set([bare, input])];
   const scored: Array<{ rule: ClassRule; rank: number; length: number }> = [];
   for (const rule of CLASS_RULES) {
     const score = scoreClass(rule, candidates);
