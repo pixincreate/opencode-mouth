@@ -212,8 +212,10 @@ export function v2Host(context: Context): Host {
       return response.data ? { providerID: response.data.providerID, modelID: response.data.modelID } : undefined;
     },
     async judge({ model, prompt, signal }) {
+      // The v2 client's generate.text takes a single prompt (no system role,
+      // no response format), so the system instructions ride along with it.
       const response = await context.client.generate.text(
-        { prompt, model: { id: model.modelID, providerID: model.providerID } },
+        { prompt: `${JUDGE_SYSTEM_PROMPT}\n\n${prompt}`, model: { id: model.modelID, providerID: model.providerID } },
         { signal },
       );
       return response.text;
