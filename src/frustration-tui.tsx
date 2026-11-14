@@ -10,7 +10,7 @@
  */
 import type { ScrollBoxRenderable } from "@opentui/core";
 import { useTerminalDimensions } from "@opentui/solid";
-import { For, Match, Show, Switch, createEffect, createMemo, createSignal, onCleanup } from "solid-js";
+import { For, Match, Show, Switch, createMemo, createSignal, onCleanup } from "solid-js";
 import { mergeModelRows, type MergedModelRow } from "./catalog.ts";
 import type { Host } from "./host.ts";
 import { scan, yieldToUI, type LoadState, type ScanResult } from "./scan.ts";
@@ -61,9 +61,6 @@ const MAX_TABLE_ROWS = 12;
 const BODY_INSET = 9;
 /** Panel borders + inner padding, on top of BODY_INSET, for text width math. */
 const PANEL_CHROME = 4;
-/** Scrollbar thumb fix: apply quickly, then again once layout settles. */
-const THUMB_FIX_DELAY_MS = 100;
-const THUMB_FIX_SETTLE_MS = 600;
 
 const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
 
@@ -484,35 +481,6 @@ export async function setupFrustration(host: Host): Promise<void> {
         </Panel>
       );
     };
-
-    createEffect(() => {
-      const current = state();
-      if (current.status !== "ready" || !scroller) return;
-      const fix = () => {
-        const box = scroller as any;
-        const sb = box?.verticalScrollBar;
-        const slider = sb?.slider;
-        if (!slider || !box.viewport) return;
-        const viewport = box.viewport.height;
-        const content = sb.scrollSize;
-        const virtualTrack = slider.height * 2; // half-block cell rendering
-        if (!viewport || !content || !virtualTrack) return;
-        if (!slider.__honestThumb) slider.__honestThumb = slider.getVirtualThumbSize;
-        if (content <= viewport) {
-          slider.getVirtualThumbSize = slider.__honestThumb;
-          return;
-        }
-        const virtualThumb = Math.min(virtualTrack, Math.floor(virtualTrack * (viewport / content)));
-        slider.getVirtualThumbSize = () => virtualThumb;
-        sb.requestRender?.();
-      };
-      const first = setTimeout(fix, THUMB_FIX_DELAY_MS);
-      const second = setTimeout(fix, THUMB_FIX_SETTLE_MS);
-      onCleanup(() => {
-        clearTimeout(first);
-        clearTimeout(second);
-      });
-    });
 
     const ready = (): (ScanResult & { status: "ready" }) | undefined => {
       const current = state();
