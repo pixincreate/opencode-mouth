@@ -29,6 +29,7 @@ import {
 import {
   estimateJudgeRun,
   idleJudgeJob,
+  judgeModelRates,
   runJudge,
   type JudgeJobStatus,
   type JudgeModel,
@@ -193,11 +194,14 @@ export async function setupFrustration(host: Host): Promise<void> {
     }
     const choice = await host.select({
       title: "Judge model",
-      options: list.map((entry) => ({
-        title: `${entry.name} (${entry.providerID}/${entry.modelID})`,
-        value: `${entry.providerID}/${entry.modelID}`,
-        description: `$${entry.inputCost}/M in · $${entry.outputCost}/M out`,
-      })),
+      options: list.map((entry) => {
+        const rates = judgeModelRates(entry);
+        return {
+          title: `${entry.name} (${entry.providerID}/${entry.modelID})`,
+          value: `${entry.providerID}/${entry.modelID}`,
+          description: `$${rates.input}/M in · $${rates.output}/M out`,
+        };
+      }),
     });
     const picked = list.find((entry) => `${entry.providerID}/${entry.modelID}` === choice);
     if (picked) setModel(picked);

@@ -9,6 +9,8 @@
  * cached verdicts keep the same meaning as upstream's.
  */
 
+import { effectiveTokenCost, timeBasedMultiplier } from "./pricing.ts";
+
 import questionFile from "./prompts/judge/frustration.json" with { type: "json" };
 
 /** Where the user's annoyance is aimed. */
@@ -236,13 +238,23 @@ interface JudgeEstimate {
   cost: number;
 }
 
+/** The base rates in force for a judge model at `timestamp`. */
+export function judgeModelRates(model: JudgeModel, timestamp = Date.now()): { input: number; output: number } {
+  return effectiveTokenCost(
+    model.providerID,
+    model.modelID,
+    { input: model.inputCost, output: model.outputCost },
+    timestamp,
+  );
+}
+
 /** Pre-run quote for judging every pending prose text, in USD. */
-export function estimateJudgeRun(pending: readonly PendingProse[], model: JudgeModel): JudgeEstimate {
+export function estimateJudgeRun(pending: readonly PendingProse[], model: JudgeModel, timestamp = Date.now()): JudgeEstimate {
   let chars = 0;
   for (const item of pending) chars += item.prose.length;
   const inputTokens = pending.length * REQUEST_OVERHEAD_TOKENS + Math.ceil(chars / CHARS_PER_TOKEN);
-  const cost =
-    (inputTokens * model.inputCost) / 1e6 + (pending.length * OUTPUT_TOKENS_PER_REQUEST * model.outputCost) / 1e6;
+  const rates = judgeModelRates(model, timestamp);
+  const cost = (inputTokens * rates.input) / 1e6 + (pending.length * OUTPUT_TOKENS_PER_REQUEST * rates.output) / 1e6;
   return { messages: pending.length, chars, inputTokens, cost };
 }
 
@@ -397,9 +409,16 @@ export async function runJudge(options: JudgeRunOptions): Promise<JudgeJobStatus
     }, VERDICT_FLUSH_MS);
   };
 
-  const requestCost = (chars: number): number =>
-    ((REQUEST_OVERHEAD_TOKENS + Math.ceil(chars / CHARS_PER_TOKEN)) * model.inputCost) / 1e6 +
-    (OUTPUT_TOKENS_PER_REQUEST * model.outputCost) / 1e6;
+  const requestCost = (chars: number): number => {
+    const timestamp = Date.now();
+    const rates = judgeModelRates(model, timestamp);
+    const multiplier = timeBasedMultiplier(model.providerID, model.modelID, timestamp);
+    return (
+      (((REQUEST_OVERHEAD_TOKENS + Math.ceil(chars / CHARS_PER_TOKEN)) * rates.input) / 1e6 +
+        (OUTPUT_TOKENS_PER_REQUEST * rates.output) / 1e6) *
+      multiplier
+    );
+  };
 
   const judgeText = async (item: PendingProse): Promise<void> => {
     for (let attempt = 1; attempt <= ATTEMPTS_PER_TEXT; attempt++) {

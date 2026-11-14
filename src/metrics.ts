@@ -466,10 +466,8 @@ const IMAGE_MARKER_RE = /\[Image #\d+\]/g;
 const ANSI_ESCAPE_RE = /\x1b\[[0-9;]*[A-Za-z]/g;
 
 // Users don't really get angry with detailed, formatted prompts: if the
-// remaining prose is this many lines or more, the emotional signals
-// (yelling, anguish, negation, repetition, blame) score zero. Profanity is
-// exempt - a swear in a long prompt is still a swear. This is a deliberate
-// deviation from upstream oh-my-pi, which zeroes profanity too.
+// remaining prose is this many lines or more, every emotional signal
+// (yelling, anguish, negation, repetition, blame, profanity) scores zero.
 const MAX_PROSE_LINES = 3;
 
 /** Count regex hits without materializing the match array. */
@@ -592,15 +590,10 @@ export function analyzeUserMessage(text: string): BehaviorMetrics {
   const prose = stripStructuredContent(trimmed).trim();
   if (!prose) return emptyMetrics(chars, words);
 
+  if (countNonEmptyLines(prose) >= MAX_PROSE_LINES) return emptyMetrics(chars, words);
+
   const profanityWords: Record<string, number> = {};
   const profanity = tallyMatches(prose, PROFANITY_RE, profanityWords);
-
-  if (countNonEmptyLines(prose) >= MAX_PROSE_LINES) {
-    const result = emptyMetrics(chars, words);
-    result.profanity = profanity;
-    result.profanityWords = profanityWords;
-    return result;
-  }
 
   const anguish =
     countMatches(prose, DRAMA_RE) +
