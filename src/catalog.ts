@@ -27,6 +27,27 @@ export interface ModelIdentity {
   modelClass: string;
   family?: string;
   revision?: string;
+  /** The id before variant suffixes were collapsed, when it differs. */
+  logicalId?: string;
+  /** The id named a thinking or reasoning variant. */
+  thinkingVariant?: boolean;
+  /** Effort tier from the variant suffix or lane. */
+  effort?: string;
+}
+
+/** Two catalog matches tie and the caller asked for strict classification. */
+export class AmbiguousIdentityError extends Error {
+  readonly model: string;
+  readonly first: string;
+  readonly second: string;
+
+  constructor(model: string, first: string, second: string, kind: "class" | "family" | "override") {
+    super(`ambiguous ${kind} for \`${model}\`: \`${first}\` and \`${second}\` tie`);
+    this.name = "AmbiguousIdentityError";
+    this.model = model;
+    this.first = first;
+    this.second = second;
+  }
 }
 
 /** One merged dashboard row: a catalog identity or a raw model id. */
@@ -45,10 +66,10 @@ export interface MergedModelRow extends FrustrationCounts {
 export interface ClassifyOptions {
   /**
    * Resolve ambiguous matches to unknown instead of guessing. The merge uses
-   * this; strict callers keep the first reviewed match.
+   * this; strict callers throw AmbiguousIdentityError.
    */
   lenient?: boolean;
-  /** Observation time for override expiry. Defaults to the current time. */
+  /** Observation time for override expiry. When omitted, expiring aliases stay active. */
   observedAtMs?: number;
 }
 
@@ -109,6 +130,14 @@ function parseRevisionPrefix(value: string): [number, number, number] | undefine
 
 function compareRevision(a: readonly number[], b: readonly number[]): number {
   return (a[0] ?? 0) - (b[0] ?? 0) || (a[1] ?? 0) - (b[1] ?? 0) || (a[2] ?? 0) - (b[2] ?? 0);
+}
+
+/** True when a parsed revision is at least the given floor. */
+export function revisionAtLeast(revision: string | undefined, floor: string): boolean {
+  if (revision === undefined) return false;
+  const parsedRevision = parseRevision(revision);
+  const parsedFloor = parseRevision(floor);
+  return parsedRevision !== undefined && parsedFloor !== undefined && compareRevision(parsedRevision, parsedFloor) >= 0;
 }
 
 function formatRevision(revision: readonly number[]): string {
@@ -173,25 +202,25 @@ function scoreClass(rule: ClassRule, lower: string, bare: string): { rank: numbe
 
 interface FamilyRanking {
   family?: string;
-  tied: boolean;
+  tied?: readonly [string, string];
 }
 
 function rankFamilies(rule: ClassRule, subject: string): FamilyRanking {
   let winner: { family: string; priority: number; specificity: number } | undefined;
-  let tied = false;
+  let tied: [string, string] | undefined;
   for (const entry of rule.families) {
     if (!globPattern(entry.glob).test(subject)) continue;
     const priority = entry.priority ?? 0;
     const specificity = entry.glob.replace(/\*/g, "").length;
     if (winner && priority === winner.priority && specificity === winner.specificity && entry.family !== winner.family) {
-      tied = true;
+      tied = [winner.family, entry.family];
     } else if (
       !winner ||
       priority > winner.priority ||
       (priority === winner.priority && specificity > winner.specificity)
     ) {
       winner = { family: entry.family, priority, specificity };
-      tied = false;
+      tied = undefined;
     }
   }
   return { family: winner?.family, tied };
@@ -216,15 +245,16 @@ function stripClassNamespace(rule: ClassRule, bare: string): string | undefined 
   return bare.slice(separator + 1);
 }
 
-function classifyFamily(rule: ClassRule, bare: string, lenient: boolean): string | undefined {
+function classifyFamily(rule: ClassRule, bare: string, lenient: boolean, model: string): string | undefined {
   const initial = rankFamilies(rule, bare);
-  if (!initial.tied) return initial.family;
+  if (initial.tied === undefined) return initial.family;
   const scoped = stripClassNamespace(rule, bare);
   if (scoped !== undefined) {
     const rescored = rankFamilies(rule, scoped);
-    if (rescored.family !== undefined && !rescored.tied) return rescored.family;
+    if (rescored.family !== undefined && rescored.tied === undefined) return rescored.family;
   }
-  return lenient ? undefined : initial.family;
+  if (lenient) return undefined;
+  throw new AmbiguousIdentityError(model, initial.tied[0], initial.tied[1], "family");
 }
 
 function extractRevision(rule: ClassRule, bare: string): string | undefined {
@@ -250,22 +280,25 @@ function classifyRanks(model: string, lenient: boolean): ModelIdentity {
   const lower = model.trim().toLowerCase();
   const bare = bareOf(lower);
   let winner: { rule: ClassRule; rank: number; length: number } | undefined;
-  let tied = false;
+  let tied: [string, string] | undefined;
   for (const rule of CLASS_RULES) {
     const score = scoreClass(rule, lower, bare);
     if (!score) continue;
     if (winner && score.rank === winner.rank && score.length === winner.length && rule.name !== winner.rule.name) {
-      tied = true;
+      tied = [winner.rule.name, rule.name];
       continue;
     }
     if (!winner || score.rank > winner.rank || (score.rank === winner.rank && score.length > winner.length)) {
       winner = { rule, ...score };
-      tied = false;
+      tied = undefined;
     }
   }
   if (!winner) return { modelClass: "unknown" };
-  if (tied && lenient) return { modelClass: "unknown" };
-  const family = classifyFamily(winner.rule, bare, lenient);
+  if (tied !== undefined) {
+    if (lenient) return { modelClass: "unknown" };
+    throw new AmbiguousIdentityError(lower, tied[0], tied[1], "class");
+  }
+  const family = classifyFamily(winner.rule, bare, lenient, lower);
   const revision = extractRevision(winner.rule, bare);
   return {
     modelClass: winner.rule.name,
@@ -280,7 +313,7 @@ function ranksInClass(classId: string, model: string, lenient: boolean): Omit<Mo
   if (!rule) return {};
   const lower = model.trim().toLowerCase();
   const bare = bareOf(lower);
-  const family = classifyFamily(rule, bare, lenient);
+  const family = classifyFamily(rule, bare, lenient, lower);
   const revision = extractRevision(rule, bare);
   return {
     ...(family !== undefined ? { family } : {}),
@@ -294,22 +327,22 @@ function nonWildcardBytes(glob: string): number {
   return count;
 }
 
-function overrideIsActive(override: OverrideRule, observedAtMs: number): boolean {
-  return override.expiresAtMs === undefined || observedAtMs < override.expiresAtMs;
+function overrideIsActive(override: OverrideRule, observedAtMs: number | undefined): boolean {
+  return override.expiresAtMs === undefined || observedAtMs === undefined || observedAtMs < override.expiresAtMs;
 }
 
 interface PatternRanking {
   winner?: { specificity: number; override: OverrideRule };
-  tied: boolean;
+  tied?: readonly [OverrideRule, OverrideRule];
 }
 
 function rankPatternOverrides(
   provider: string | undefined,
   bare: string,
-  observedAtMs: number,
+  observedAtMs: number | undefined,
 ): PatternRanking {
   let winner: { specificity: number; override: OverrideRule } | undefined;
-  let tied = false;
+  let tied: [OverrideRule, OverrideRule] | undefined;
   for (const override of OVERRIDES) {
     if (override.glob === undefined || override.model !== undefined) continue;
     if (override.provider?.toLowerCase() !== provider) continue;
@@ -317,13 +350,13 @@ function rankPatternOverrides(
     if (!globPattern(override.glob).test(bare)) continue;
     const specificity = nonWildcardBytes(override.glob);
     if (winner && specificity === winner.specificity) {
-      tied = true;
+      tied = [winner.override, override];
     } else if (!winner || specificity > winner.specificity) {
       winner = { specificity, override };
-      tied = false;
+      tied = undefined;
     }
   }
-  return { winner: tied ? undefined : winner, tied };
+  return { winner: tied === undefined ? winner : undefined, tied };
 }
 
 /**
@@ -333,7 +366,8 @@ function rankPatternOverrides(
 function findOverride(
   provider: string,
   bare: string,
-  observedAtMs: number,
+  observedAtMs: number | undefined,
+  lenient: boolean,
 ): OverrideRule | undefined {
   const lowerProvider = provider.toLowerCase();
   const lowerBare = bare.toLowerCase();
@@ -348,10 +382,21 @@ function findOverride(
     if (overrideIsActive(override, observedAtMs)) return override;
   }
   let ranked = rankPatternOverrides(lowerProvider, lowerBare, observedAtMs);
-  if (ranked.winner === undefined && !ranked.tied) {
+  if (ranked.winner === undefined && ranked.tied === undefined) {
     ranked = rankPatternOverrides(undefined, lowerBare, observedAtMs);
   }
+  if (ranked.tied !== undefined) {
+    if (lenient) return undefined;
+    const label = (override: OverrideRule): string => override.glob ?? override.model ?? "override";
+    throw new AmbiguousIdentityError(lowerBare, label(ranked.tied[0]), label(ranked.tied[1]), "override");
+  }
   return ranked.winner?.override;
+}
+
+interface CollapsedVariant {
+  logicalId: string;
+  thinkingVariant: boolean;
+  effort?: string;
 }
 
 /**
@@ -359,12 +404,12 @@ function findOverride(
  * identity describes the model weights rather than the request route. Ported
  * from upstream `collapseVariantId`; the override path never collapses.
  */
-function collapseVariantId(provider: string, model: string): string {
+function collapseVariantId(provider: string, model: string): CollapsedVariant {
   const lower = model.toLowerCase();
   const lowerProvider = provider.toLowerCase();
   for (const family of COLLAPSE.effortFamilies) {
     if (family.provider !== lowerProvider) continue;
-    if (family.aliases.includes(lower)) return family.logical;
+    if (family.aliases.includes(lower)) return { logicalId: family.logical, thinkingVariant: false };
   }
   const bare = bareOf(lower);
   let suffix: CollapseSuffix | undefined;
@@ -373,7 +418,13 @@ function collapseVariantId(provider: string, model: string): string {
     if (rule.exceptBarePrefix !== undefined && bare.startsWith(rule.exceptBarePrefix)) continue;
     if (!suffix || rule.suffix.length > suffix.suffix.length) suffix = rule;
   }
-  if (suffix) return model.slice(0, model.length - suffix.suffix.length);
+  if (suffix) {
+    return {
+      logicalId: model.slice(0, model.length - suffix.suffix.length),
+      thinkingVariant: suffix.thinking === true,
+      ...(suffix.effort !== undefined ? { effort: suffix.effort } : {}),
+    };
+  }
   for (const lane of COLLAPSE.lanes) {
     if (!lane.providers.includes(lowerProvider)) continue;
     if (!lower.endsWith(lane.suffix)) continue;
@@ -387,24 +438,30 @@ function collapseVariantId(provider: string, model: string): string {
       if (!effort || rule.suffix.length > effort.suffix.length) effort = rule;
     }
     if (effort === undefined) continue;
+    const effortTier = effort.effort;
+    if (effortTier === undefined) continue;
     const base = model.slice(0, trimmed.length - effort.suffix.length);
     if (!base || base.endsWith("/")) continue;
-    return `${base}${model.slice(trimmed.length)}`;
+    return {
+      logicalId: `${base}${model.slice(trimmed.length)}`,
+      thinkingVariant: false,
+      effort: effortTier,
+    };
   }
-  return model;
+  return { logicalId: model, thinkingVariant: false };
 }
 
 /**
  * Resolve a provider/model pair to a catalog identity. Unknown models keep
  * `modelClass: "unknown"`. In lenient mode (what the merge uses) ambiguous
- * matches resolve to unknown instead of guessing.
+ * matches resolve to unknown instead of throwing.
  */
 export function classifyModel(provider: string, model: string, options?: ClassifyOptions): ModelIdentity {
   const lenient = options?.lenient ?? false;
-  const observedAtMs = options?.observedAtMs ?? Date.now();
+  const observedAtMs = options?.observedAtMs;
   const trimmed = model.trim();
   const bare = bareOf(trimmed);
-  const override = findOverride(provider, bare, observedAtMs);
+  const override = findOverride(provider, bare, observedAtMs, lenient);
   if (override) {
     const logical = override.logical ?? trimmed;
     const modelClass = override.modelClass ?? classifyRanks(logical, lenient).modelClass;
@@ -415,10 +472,18 @@ export function classifyModel(provider: string, model: string, options?: Classif
       modelClass,
       ...(family !== undefined ? { family } : {}),
       ...(revision !== undefined ? { revision } : {}),
+      ...(logical !== trimmed ? { logicalId: logical } : {}),
     };
   }
-  const logical = trimmed.length === model.length ? collapseVariantId(provider, trimmed) : trimmed;
-  return classifyRanks(logical, lenient);
+  const collapsed =
+    trimmed.length === model.length ? collapseVariantId(provider, trimmed) : { logicalId: trimmed, thinkingVariant: false };
+  const identity = classifyRanks(collapsed.logicalId, lenient);
+  return {
+    ...identity,
+    ...(collapsed.logicalId !== trimmed ? { logicalId: collapsed.logicalId } : {}),
+    ...(collapsed.thinkingVariant ? { thinkingVariant: true } : {}),
+    ...(collapsed.effort !== undefined ? { effort: collapsed.effort } : {}),
+  };
 }
 
 function compareModelRows(a: MergedModelRow, b: MergedModelRow): number {
