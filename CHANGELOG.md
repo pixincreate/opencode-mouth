@@ -4,6 +4,14 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+## [2.2.0] - 2026-11-15
+
+### Changed
+
+- Port the full oh-my-pi catalog taxonomy: all 21 classes, class matchers, family and revision rules, variant-collapse rules, and reviewed identity overrides.
+- Vendor the upstream frustration judge prompt file so future prompt changes remain tracked.
+- Refresh the reviewed upstream pins in `upstream.json`.
+
 ## [2.1.2] - 2026-11-14
 
 ### Changed

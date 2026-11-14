@@ -1967,6 +1967,13 @@
       "finding_type": "Base64 Encoded String",
       "matched_content_hash": "09505465ddd5fe3253f536147de8dc20a3966b13650f06f19bd278a250e4d290",
       "plugin_name": "Base64Detector"
+    },
+    {
+      "file_path": "src/catalog-rules.ts",
+      "line_number": 211,
+      "finding_type": "Generic Key/Secret",
+      "matched_content_hash": "3346b43af201f713df8cfbfb40db488ea8bb013c35e2db3fdb51d96e610624fa",
+      "plugin_name": "GenericKeyValueDetector"
     }
   ]
 }

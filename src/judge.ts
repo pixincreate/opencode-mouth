@@ -9,6 +9,8 @@
  * cached verdicts keep the same meaning as upstream's.
  */
 
+import questionFile from "./prompts/judge/frustration.json" with { type: "json" };
+
 /** Where the user's annoyance is aimed. */
 type FrustrationTarget = "assistant" | "other" | "none";
 
@@ -42,31 +44,11 @@ type JudgeTransport = (request: JudgeRequest) => Promise<string>;
 
 /**
  * The two questions asked about every prose text, in ONE judge request.
- * The cost constants below were measured upstream with exactly these strings;
- * changing them invalidates both the estimate and every cached verdict.
+ * The strings live in the vendored upstream prompt file; the cost constants
+ * below were measured upstream with exactly these strings, so changing them
+ * invalidates both the estimate and every cached verdict.
  */
-const FRUSTRATION_QUESTIONS = {
-  annoyed: {
-    instructions:
-      "A user typed this message to an AI coding assistant (code blocks and markup were removed). Rate how frustrated or annoyed the user sounds. Judge tone and wording only (caps, swearing, 'again', 'why did you', 'stop', 'wtf', exasperation), not task difficulty. Plain instructions or questions are neutral.",
-    criteria: [
-      "neutral / no frustration",
-      "mild irritation or impatience",
-      "clearly annoyed or exasperated",
-      "angry, hostile, or swearing",
-    ],
-  },
-  target: {
-    instructions: "If the user sounds annoyed, what is the annoyance aimed at?",
-    criteria: {
-      assistant:
-        "the AI's own behavior in this session: what it did, wrote, ignored, repeated, took too long on, or misunderstood (incl. reacting to its output with 'wtf', 'no', 'stop', 'again', 'why did you')",
-      other:
-        "build tools, third-party libraries/services, pre-existing code or tests, the user's own past design, other people, or general product/UX feedback about the thing being built",
-      none: "not annoyed: a plain question, instruction, design musing, or casual chat",
-    },
-  },
-} as const;
+const FRUSTRATION_QUESTIONS = questionFile;
 
 /** Per-request input-token overhead of {@link FRUSTRATION_QUESTIONS}, measured upstream on jev-1.13. */
 const REQUEST_OVERHEAD_TOKENS = 561;

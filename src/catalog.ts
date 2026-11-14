@@ -1,5 +1,5 @@
 /**
- * Model catalog: a reviewed subset of oh-my-pi's pi-catalog
+ * Model catalog: a port of oh-my-pi's pi-catalog
  * (packages/catalog, MIT) plus upstream's Frustration row merge
  * (packages/stats/src/frustration.ts, mergeFrustrationRows).
  *
@@ -7,7 +7,19 @@
  * when a model can be classified, so variants served by different providers
  * merge into one model-version row like upstream. Models outside the table
  * keep one row per raw model id, also like upstream.
+ *
+ * The rules and reviewed overrides live in `catalog-rules.ts`, generated from
+ * the upstream KDL files pinned in `upstream.json`.
  */
+import {
+  CLASS_RULES,
+  COLLAPSE,
+  OVERRIDES,
+  type ClassRule,
+  type CollapseSuffix,
+  type NamespaceRule,
+  type OverrideRule,
+} from "./catalog-rules.ts";
 import type { FrustrationCounts, FrustrationModelStats } from "./stats-db.ts";
 
 /** Catalog identity of a model id, in pi-catalog terms. */
@@ -21,12 +33,23 @@ export interface ModelIdentity {
 export interface MergedModelRow extends FrustrationCounts {
   key: string;
   label: string;
-  modelClass: string | null;
+  modelClass: string;
   family: string | null;
   revision: string | null;
   /** Distinct raw model ids behind this row. */
   models: string[];
   firstSeen: number;
+}
+
+/** Options for {@link classifyModel}. */
+export interface ClassifyOptions {
+  /**
+   * Resolve ambiguous matches to unknown instead of guessing. The merge uses
+   * this; strict callers keep the first reviewed match.
+   */
+  lenient?: boolean;
+  /** Observation time for override expiry. Defaults to the current time. */
+  observedAtMs?: number;
 }
 
 // --- revision helpers (ported from pi-catalog src/compat/revision.ts) --------
@@ -118,236 +141,90 @@ type MatcherKind = "exact" | "bounded" | "namespace" | "prefix" | "glob";
 /** Higher wins; matches pi-catalog's matcher ranking. */
 const MATCHER_RANK: Record<MatcherKind, number> = { exact: 4, bounded: 3, namespace: 2, prefix: 1, glob: 0 };
 
-function matches(kind: MatcherKind, candidate: string, token: string): boolean {
-  if (kind === "exact") return candidate === token;
-  if (kind === "bounded") return boundedMatch(candidate, token);
-  if (kind === "namespace") return candidate.startsWith(`${token}/`);
-  if (kind === "prefix") return candidate.startsWith(token);
-  return globPattern(token).test(candidate);
-}
-
-// --- class rules (reviewed subset of pi-catalog rules/taxonomy/) -------------
-
-interface FamilyRule {
-  family: string;
-  glob: string;
-  priority?: number;
-}
-
-interface RevisionRule {
-  prefix: string;
-  anywhere?: boolean;
-}
-
-interface ClassRule {
-  name: string;
-  exact?: readonly string[];
-  bounded?: readonly string[];
-  namespace?: readonly string[];
-  prefix?: readonly string[];
-  glob?: readonly string[];
-  skipBare?: readonly string[];
-  families: readonly FamilyRule[];
-  revisions: readonly RevisionRule[];
-}
-
 /**
- * Classes without a revision rule (kimi, minimax, mistral) can never produce
- * a merged row: like upstream, the merge only groups identities that carry
- * a revision, so those classes stay one row per raw model id.
+ * A namespace matcher looks at the whole provider-qualified id. Bounded
+ * namespaces split on `/`, `.`, and `:` so Bedrock-style `vendor.model` ids
+ * match; unbounded namespaces only compare `/`-separated parts.
  */
-const CLASS_RULES: readonly ClassRule[] = [
-  {
-    name: "deepseek",
-    namespace: ["deepseek"],
-    bounded: ["deepseek"],
-    families: [
-      { family: "r1", glob: "*deepseek-r1*" },
-      { family: "reasoner", glob: "*deepseek-reasoner*" },
-      { family: "flash", glob: "*deepseek*v4*flash*" },
-      { family: "flash", glob: "*deepseek-flash" },
-      { family: "pro", glob: "*deepseek*v4*pro*" },
-      { family: "v4", glob: "*deepseek-v4*" },
-      { family: "v3", glob: "*deepseek-v3*" },
-    ],
-    revisions: [{ prefix: "deepseek-v", anywhere: true }],
-  },
-  {
-    name: "anthropic",
-    namespace: ["anthropic"],
-    bounded: ["anthropic", "claude"],
-    families: [
-      { family: "opus", glob: "*opus*" },
-      { family: "sonnet", glob: "*sonnet*" },
-      { family: "haiku", glob: "*haiku*" },
-      { family: "fable", glob: "*fable*" },
-      { family: "mythos", glob: "*mythos*" },
-    ],
-    revisions: [{ prefix: "claude-", anywhere: true }],
-  },
-  {
-    name: "openai",
-    namespace: ["openai"],
-    exact: ["o1", "o3", "o4"],
-    prefix: ["gpt-", "chatgpt-", "codex-", "o1-", "o1.", "o3-", "o3.", "o4-", "o4."],
-    skipBare: ["o1", "o3", "o4"],
-    families: [
-      { family: "gpt", glob: "gpt-*" },
-      { family: "chatgpt", glob: "chatgpt-*" },
-      { family: "codex-spark", glob: "*codex-spark*", priority: 20 },
-      { family: "codex", glob: "*codex*", priority: 10 },
-      { family: "o-series", glob: "o1" },
-      { family: "o-series", glob: "o1-*" },
-      { family: "o-series", glob: "o1.*" },
-      { family: "o-series", glob: "o3" },
-      { family: "o-series", glob: "o3-*" },
-      { family: "o-series", glob: "o3.*" },
-      { family: "o-series", glob: "o4" },
-      { family: "o-series", glob: "o4-*" },
-      { family: "o-series", glob: "o4.*" },
-    ],
-    revisions: [{ prefix: "chatgpt-" }, { prefix: "gpt-", anywhere: true }, { prefix: "o" }],
-  },
-  {
-    name: "gemini",
-    bounded: ["gemini"],
-    families: [
-      { family: "lite", glob: "*flash-lite*", priority: 10 },
-      { family: "flash", glob: "*flash*" },
-      { family: "pro", glob: "*pro*" },
-    ],
-    revisions: [{ prefix: "gemini-" }],
-  },
-  {
-    name: "xai",
-    namespace: ["x-ai", "xai"],
-    bounded: ["grok"],
-    prefix: ["cursor-grok-"],
-    families: [{ family: "grok", glob: "*grok*" }],
-    revisions: [{ prefix: "cursor-grok-" }, { prefix: "grok-", anywhere: true }],
-  },
-  {
-    name: "qwen",
-    bounded: ["qwen", "deepseek-r1-distill-qwen"],
-    glob: ["*distill-qwen*"],
-    families: [
-      { family: "qwq", glob: "*qwq*" },
-      { family: "coder", glob: "*qwen3-coder*" },
-      { family: "next", glob: "*qwen*next*" },
-      { family: "omni", glob: "*qwen*omni*" },
-      { family: "vl", glob: "*qwen*vl*" },
-      { family: "qwenlong", glob: "*qwenlong*" },
-    ],
-    revisions: [{ prefix: "qwen" }],
-  },
-  {
-    name: "kimi",
-    namespace: ["moonshotai"],
-    bounded: ["kimi"],
-    exact: ["k3", "k3-256k"],
-    families: [
-      { family: "k2.7-code", glob: "*kimi-k2.7-code*" },
-      { family: "k2.6", glob: "*kimi-k2.6*" },
-      { family: "k2.5", glob: "*kimi-k2.5*" },
-      { family: "k2-thinking", glob: "*kimi-k2-thinking*" },
-      { family: "k2", glob: "*kimi-k2*" },
-      { family: "k3", glob: "*kimi-k3*" },
-    ],
-    revisions: [],
-  },
-  {
-    name: "glm",
-    bounded: ["glm", "zai-glm"],
-    families: [
-      { family: "vision", glob: "*glm-5v*", priority: 20 },
-      { family: "flash", glob: "*glm*flash*" },
-      { family: "air", glob: "*glm*air*" },
-      { family: "turbo", glob: "*glm*turbo*" },
-    ],
-    revisions: [{ prefix: "glm-", anywhere: true }],
-  },
-  {
-    name: "minimax",
-    namespace: ["minimax"],
-    bounded: ["minimax", "hailuo"],
-    families: [
-      { family: "m1", glob: "*minimax-m1*" },
-      { family: "m2", glob: "*minimax-m2*" },
-      { family: "m3", glob: "*minimax-m3*" },
-    ],
-    revisions: [],
-  },
-  {
-    name: "mistral",
-    bounded: ["mistral", "mixtral"],
-    families: [
-      { family: "mistral", glob: "*mistral*" },
-      { family: "mixtral", glob: "*mixtral*" },
-    ],
-    revisions: [],
-  },
-  {
-    name: "meta",
-    namespace: ["meta-llama"],
-    bounded: ["muse-spark", "llama"],
-    families: [
-      { family: "llama", glob: "*llama*" },
-      { family: "muse-spark", glob: "*muse-spark*" },
-    ],
-    revisions: [{ prefix: "muse-spark-" }],
-  },
-];
-
-/** Provider-scoped aliases pinned by oh-my-pi PR #14199. */
-const OVERRIDES: ReadonlyArray<{ provider: string; model: string; identity: ModelIdentity }> = [
-  {
-    provider: "deepseek",
-    model: "deepseek-flash",
-    identity: { modelClass: "deepseek", family: "flash", revision: "4.1.0" },
-  },
-  {
-    provider: "opencode-go",
-    model: "deepseek-flash",
-    identity: { modelClass: "deepseek", family: "flash", revision: "4.1.0" },
-  },
-];
-
-function scoreClass(rule: ClassRule, candidates: readonly string[]): { rank: number; length: number } | undefined {
-  let best: { rank: number; length: number } | undefined;
-  const kinds: ReadonlyArray<readonly [MatcherKind, readonly string[] | undefined]> = [
-    ["exact", rule.exact],
-    ["bounded", rule.bounded],
-    ["namespace", rule.namespace],
-    ["prefix", rule.prefix],
-    ["glob", rule.glob],
-  ];
-  for (const [kind, tokens] of kinds) {
-    for (const token of tokens ?? []) {
-      for (const candidate of candidates) {
-        if (!matches(kind, candidate, token)) continue;
-        const rank = MATCHER_RANK[kind];
-        if (!best || rank > best.rank || (rank === best.rank && token.length > best.length)) {
-          best = { rank, length: token.length };
-        }
-      }
-    }
+function namespaceMatches(entry: NamespaceRule, lower: string): boolean {
+  const parts = entry.bounded ? lower.split(/[/.:]/) : lower.split("/");
+  for (const part of parts) {
+    if (!part) continue;
+    if (entry.bounded ? boundedMatch(part, entry.token) : part === entry.token) return true;
   }
+  return false;
+}
+
+function scoreClass(rule: ClassRule, lower: string, bare: string): { rank: number; length: number } | undefined {
+  let best: { rank: number; length: number } | undefined;
+  const consider = (kind: MatcherKind, token: string): void => {
+    const rank = MATCHER_RANK[kind];
+    if (!best || rank > best.rank || (rank === best.rank && token.length > best.length)) {
+      best = { rank, length: token.length };
+    }
+  };
+  for (const token of rule.exact ?? []) if (bare === token) consider("exact", token);
+  for (const token of rule.bounded ?? []) if (boundedMatch(bare, token)) consider("bounded", token);
+  for (const entry of rule.namespace ?? []) if (namespaceMatches(entry, lower)) consider("namespace", entry.token);
+  for (const token of rule.prefix ?? []) if (bare.startsWith(token)) consider("prefix", token);
+  for (const token of rule.glob ?? []) if (globPattern(token).test(bare)) consider("glob", token);
   return best;
 }
 
-function matchFamily(rule: ClassRule, bare: string, lenient: boolean): string | undefined {
-  const hits = rule.families
-    .filter((entry) => globPattern(entry.glob).test(bare))
-    .map((entry) => ({ entry, specificity: entry.glob.replace(/\*/g, "").length }))
-    .sort((a, b) => (b.entry.priority ?? 0) - (a.entry.priority ?? 0) || b.specificity - a.specificity);
-  const first = hits[0];
-  if (!first) return undefined;
-  const second = hits[1];
-  const tied = second !== undefined
-    && (first.entry.priority ?? 0) === (second.entry.priority ?? 0)
-    && first.specificity === second.specificity;
-  if (tied && lenient) return undefined;
-  return first.entry.family;
+interface FamilyRanking {
+  family?: string;
+  tied: boolean;
+}
+
+function rankFamilies(rule: ClassRule, subject: string): FamilyRanking {
+  let winner: { family: string; priority: number; specificity: number } | undefined;
+  let tied = false;
+  for (const entry of rule.families) {
+    if (!globPattern(entry.glob).test(subject)) continue;
+    const priority = entry.priority ?? 0;
+    const specificity = entry.glob.replace(/\*/g, "").length;
+    if (winner && priority === winner.priority && specificity === winner.specificity && entry.family !== winner.family) {
+      tied = true;
+    } else if (
+      !winner ||
+      priority > winner.priority ||
+      (priority === winner.priority && specificity > winner.specificity)
+    ) {
+      winner = { family: entry.family, priority, specificity };
+      tied = false;
+    }
+  }
+  return { family: winner?.family, tied };
+}
+
+/**
+ * A Bedrock-style `vendor.model` id names the product after the class
+ * namespace. Strip that prefix only for ambiguous family matches.
+ */
+function stripClassNamespace(rule: ClassRule, bare: string): string | undefined {
+  const separator = bare.search(/[.:]/);
+  if (separator <= 0 || separator === bare.length - 1) return undefined;
+  const namespace = bare.slice(0, separator);
+  const tokens = [
+    ...(rule.exact ?? []),
+    ...(rule.bounded ?? []),
+    ...(rule.namespace ?? []).map((entry) => entry.token),
+    ...(rule.prefix ?? []),
+    ...(rule.glob ?? []),
+  ];
+  if (!tokens.includes(namespace)) return undefined;
+  return bare.slice(separator + 1);
+}
+
+function classifyFamily(rule: ClassRule, bare: string, lenient: boolean): string | undefined {
+  const initial = rankFamilies(rule, bare);
+  if (!initial.tied) return initial.family;
+  const scoped = stripClassNamespace(rule, bare);
+  if (scoped !== undefined) {
+    const rescored = rankFamilies(rule, scoped);
+    if (rescored.family !== undefined && !rescored.tied) return rescored.family;
+  }
+  return lenient ? undefined : initial.family;
 }
 
 function extractRevision(rule: ClassRule, bare: string): string | undefined {
@@ -369,56 +246,195 @@ function extractRevision(rule: ClassRule, bare: string): string | undefined {
   return undefined;
 }
 
-/**
- * Resolve a provider/model pair to a catalog identity. Unknown models keep
- * `modelClass: "unknown"`. In lenient mode (what the merge uses) ambiguous
- * matches resolve to unknown instead of guessing.
- */
-export function classifyModel(provider: string, model: string, options?: { lenient?: boolean }): ModelIdentity {
-  const lenient = options?.lenient ?? false;
-  const input = model.toLowerCase();
-  const providerID = provider.toLowerCase();
-  const bare = bareOf(input);
-  for (const override of OVERRIDES) {
-    if (override.provider === providerID && (override.model === input || override.model === bare)) {
-      return { ...override.identity };
+function classifyRanks(model: string, lenient: boolean): ModelIdentity {
+  const lower = model.trim().toLowerCase();
+  const bare = bareOf(lower);
+  let winner: { rule: ClassRule; rank: number; length: number } | undefined;
+  let tied = false;
+  for (const rule of CLASS_RULES) {
+    const score = scoreClass(rule, lower, bare);
+    if (!score) continue;
+    if (winner && score.rank === winner.rank && score.length === winner.length && rule.name !== winner.rule.name) {
+      tied = true;
+      continue;
+    }
+    if (!winner || score.rank > winner.rank || (score.rank === winner.rank && score.length > winner.length)) {
+      winner = { rule, ...score };
+      tied = false;
     }
   }
-  // Score only the model forms; the provider scopes overrides, not class evidence.
-  const candidates = [...new Set([bare, input])];
-  const scored: Array<{ rule: ClassRule; rank: number; length: number }> = [];
-  for (const rule of CLASS_RULES) {
-    const score = scoreClass(rule, candidates);
-    if (score) scored.push({ rule, ...score });
-  }
-  if (scored.length === 0) return { modelClass: "unknown" };
-  const maxRank = Math.max(...scored.map((entry) => entry.rank));
-  const top = scored.filter((entry) => entry.rank === maxRank);
-  const maxLength = Math.max(...top.map((entry) => entry.length));
-  const best = top.filter((entry) => entry.length === maxLength);
-  if (best.length > 1 && lenient) return { modelClass: "unknown" };
-  const rule = best[0].rule;
-  const family = matchFamily(rule, bare, lenient);
-  const revision = extractRevision(rule, bare);
+  if (!winner) return { modelClass: "unknown" };
+  if (tied && lenient) return { modelClass: "unknown" };
+  const family = classifyFamily(winner.rule, bare, lenient);
+  const revision = extractRevision(winner.rule, bare);
   return {
-    modelClass: rule.name,
+    modelClass: winner.rule.name,
     ...(family !== undefined ? { family } : {}),
     ...(revision !== undefined ? { revision } : {}),
   };
 }
 
-function compareModelRows(a: MergedModelRow, b: MergedModelRow): number {
-  if ((a.modelClass !== null) !== (b.modelClass !== null)) return a.modelClass !== null ? -1 : 1;
-  if (a.modelClass !== null && b.modelClass !== null) {
-    if (a.modelClass !== b.modelClass) return a.modelClass < b.modelClass ? -1 : 1;
-    const revision = compareRevision(
-      parseRevision(a.revision ?? "") ?? [0, 0, 0],
-      parseRevision(b.revision ?? "") ?? [0, 0, 0],
-    );
-    if (revision !== 0) return revision;
-    return (a.family ?? "").localeCompare(b.family ?? "");
+/** Infer family and revision for a known class, used to fill partial overrides. */
+function ranksInClass(classId: string, model: string, lenient: boolean): Omit<ModelIdentity, "modelClass"> {
+  const rule = CLASS_RULES.find((entry) => entry.name === classId);
+  if (!rule) return {};
+  const lower = model.trim().toLowerCase();
+  const bare = bareOf(lower);
+  const family = classifyFamily(rule, bare, lenient);
+  const revision = extractRevision(rule, bare);
+  return {
+    ...(family !== undefined ? { family } : {}),
+    ...(revision !== undefined ? { revision } : {}),
+  };
+}
+
+function nonWildcardBytes(glob: string): number {
+  let count = 0;
+  for (const character of glob) if (character !== "*") count++;
+  return count;
+}
+
+function overrideIsActive(override: OverrideRule, observedAtMs: number): boolean {
+  return override.expiresAtMs === undefined || observedAtMs < override.expiresAtMs;
+}
+
+interface PatternRanking {
+  winner?: { specificity: number; override: OverrideRule };
+  tied: boolean;
+}
+
+function rankPatternOverrides(
+  provider: string | undefined,
+  bare: string,
+  observedAtMs: number,
+): PatternRanking {
+  let winner: { specificity: number; override: OverrideRule } | undefined;
+  let tied = false;
+  for (const override of OVERRIDES) {
+    if (override.glob === undefined || override.model !== undefined) continue;
+    if (override.provider?.toLowerCase() !== provider) continue;
+    if (!overrideIsActive(override, observedAtMs)) continue;
+    if (!globPattern(override.glob).test(bare)) continue;
+    const specificity = nonWildcardBytes(override.glob);
+    if (winner && specificity === winner.specificity) {
+      tied = true;
+    } else if (!winner || specificity > winner.specificity) {
+      winner = { specificity, override };
+      tied = false;
+    }
   }
-  return a.firstSeen - b.firstSeen || (a.key < b.key ? -1 : a.key > b.key ? 1 : 0);
+  return { winner: tied ? undefined : winner, tied };
+}
+
+/**
+ * Match a reviewed override: exact model ids first (provider-scoped before
+ * provider-agnostic), then glob patterns by non-wildcard specificity.
+ */
+function findOverride(
+  provider: string,
+  bare: string,
+  observedAtMs: number,
+): OverrideRule | undefined {
+  const lowerProvider = provider.toLowerCase();
+  const lowerBare = bare.toLowerCase();
+  for (const override of OVERRIDES) {
+    if (override.model === undefined || override.model.toLowerCase() !== lowerBare) continue;
+    if (override.provider?.toLowerCase() !== lowerProvider) continue;
+    if (overrideIsActive(override, observedAtMs)) return override;
+  }
+  for (const override of OVERRIDES) {
+    if (override.model === undefined || override.model.toLowerCase() !== lowerBare) continue;
+    if (override.provider !== undefined) continue;
+    if (overrideIsActive(override, observedAtMs)) return override;
+  }
+  let ranked = rankPatternOverrides(lowerProvider, lowerBare, observedAtMs);
+  if (ranked.winner === undefined && !ranked.tied) {
+    ranked = rankPatternOverrides(undefined, lowerBare, observedAtMs);
+  }
+  return ranked.winner?.override;
+}
+
+/**
+ * Strip variant suffixes that name an effort, thinking mode, or lane, so the
+ * identity describes the model weights rather than the request route. Ported
+ * from upstream `collapseVariantId`; the override path never collapses.
+ */
+function collapseVariantId(provider: string, model: string): string {
+  const lower = model.toLowerCase();
+  const lowerProvider = provider.toLowerCase();
+  for (const family of COLLAPSE.effortFamilies) {
+    if (family.provider !== lowerProvider) continue;
+    if (family.aliases.includes(lower)) return family.logical;
+  }
+  const bare = bareOf(lower);
+  let suffix: CollapseSuffix | undefined;
+  for (const rule of COLLAPSE.suffixes) {
+    if (!lower.endsWith(rule.suffix)) continue;
+    if (rule.exceptBarePrefix !== undefined && bare.startsWith(rule.exceptBarePrefix)) continue;
+    if (!suffix || rule.suffix.length > suffix.suffix.length) suffix = rule;
+  }
+  if (suffix) return model.slice(0, model.length - suffix.suffix.length);
+  for (const lane of COLLAPSE.lanes) {
+    if (!lane.providers.includes(lowerProvider)) continue;
+    if (!lower.endsWith(lane.suffix)) continue;
+    const trimmed = lower.slice(0, lower.length - lane.suffix.length);
+    const trimmedBare = bareOf(trimmed);
+    if (lane.barePrefix !== undefined && !trimmedBare.startsWith(lane.barePrefix)) continue;
+    let effort: CollapseSuffix | undefined;
+    for (const rule of COLLAPSE.suffixes) {
+      if (rule.effort === undefined || !trimmed.endsWith(rule.suffix)) continue;
+      if (rule.exceptBarePrefix !== undefined && trimmedBare.startsWith(rule.exceptBarePrefix)) continue;
+      if (!effort || rule.suffix.length > effort.suffix.length) effort = rule;
+    }
+    if (effort === undefined) continue;
+    const base = model.slice(0, trimmed.length - effort.suffix.length);
+    if (!base || base.endsWith("/")) continue;
+    return `${base}${model.slice(trimmed.length)}`;
+  }
+  return model;
+}
+
+/**
+ * Resolve a provider/model pair to a catalog identity. Unknown models keep
+ * `modelClass: "unknown"`. In lenient mode (what the merge uses) ambiguous
+ * matches resolve to unknown instead of guessing.
+ */
+export function classifyModel(provider: string, model: string, options?: ClassifyOptions): ModelIdentity {
+  const lenient = options?.lenient ?? false;
+  const observedAtMs = options?.observedAtMs ?? Date.now();
+  const trimmed = model.trim();
+  const bare = bareOf(trimmed);
+  const override = findOverride(provider, bare, observedAtMs);
+  if (override) {
+    const logical = override.logical ?? trimmed;
+    const modelClass = override.modelClass ?? classifyRanks(logical, lenient).modelClass;
+    const inferred = ranksInClass(modelClass, logical, lenient);
+    const family = override.family ?? inferred.family;
+    const revision = override.revision ?? inferred.revision;
+    return {
+      modelClass,
+      ...(family !== undefined ? { family } : {}),
+      ...(revision !== undefined ? { revision } : {}),
+    };
+  }
+  const logical = trimmed.length === model.length ? collapseVariantId(provider, trimmed) : trimmed;
+  return classifyRanks(logical, lenient);
+}
+
+function compareModelRows(a: MergedModelRow, b: MergedModelRow): number {
+  const aRevision = a.revision ? parseRevision(a.revision) : undefined;
+  const bRevision = b.revision ? parseRevision(b.revision) : undefined;
+  if (!aRevision || !bRevision) {
+    if (aRevision) return -1;
+    if (bRevision) return 1;
+    return a.firstSeen - b.firstSeen;
+  }
+  if (a.modelClass !== b.modelClass) return a.modelClass < b.modelClass ? -1 : 1;
+  const revision = compareRevision(aRevision, bRevision);
+  if (revision !== 0) return revision;
+  const aFamily = a.family ?? "";
+  const bFamily = b.family ?? "";
+  return aFamily < bFamily ? -1 : aFamily > bFamily ? 1 : 0;
 }
 
 /**
@@ -449,9 +465,9 @@ export function mergeModelRows(rows: readonly FrustrationModelStats[]): MergedMo
       label: classified
         ? [identity.family, shortRevision(identity.revision!)].filter(Boolean).join(" ")
         : row.model,
-      modelClass: classified ? identity.modelClass : null,
+      modelClass: identity.modelClass,
       family: identity.family ?? null,
-      revision: identity.revision ?? null,
+      revision: classified ? (identity.revision ?? null) : null,
       models: [row.model],
       firstSeen: row.firstSeen,
       messages: row.messages,

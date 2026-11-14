@@ -22,6 +22,8 @@ Test both hosts before releasing changes to the adapters.
 
 - `src/metrics.ts`: behavior metric engine (oh-my-pi port)
 - `src/judge.ts`: frustration judge prompt, parsing, and run engine (oh-my-pi port)
+- `src/catalog.ts`: catalog identity matching and model-row merge (oh-my-pi port)
+- `src/catalog-rules.ts`: generated taxonomy rules, overrides, and variant-collapse data (oh-my-pi port)
 - `src/scan.ts`: session scanning and stats ingestion
 - `src/stats-db.ts`: per-message stats and cached judge verdicts
 - `src/ui.tsx`: shared dashboard helpers and components
