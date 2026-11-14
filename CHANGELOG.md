@@ -4,6 +4,17 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+## [2.1.2] - 2026-11-14
+
+### Changed
+
+- Dependency refresh: @opentui/core, @opentui/keymap, and @opentui/solid to 0.9.0; @opencode/plugin to 2.3.0; @opencode-ai/plugin to 1.19.5; @babel/core to 8.1.2; @babel/preset-typescript to 8.0.7; babel-preset-solid to 1.9.19; @types/node to 26.6.6.
+- Remove the scrollbar thumb workaround that patched OpenTUI 0.6 internals; OpenTUI 0.8 and later size the thumb natively.
+
+### Fixed
+
+- Force effect to 4.1.0, seroval to 1.8.1, seroval-plugins to 1.8.0, and zod to 4.6.7 with npm overrides so the known advisories clear; `npm audit` reports no high or critical vulnerabilities.
+
 ## [2.1.1] - 2026-10-23
 
 ### Changed
