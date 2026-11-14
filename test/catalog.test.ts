@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { classifyModel, mergeModelRows } from "../src/catalog.ts";
+import { AmbiguousIdentityError, classifyModel, mergeModelRows, revisionAtLeast } from "../src/catalog.ts";
 import type { FrustrationModelStats } from "../src/stats-db.ts";
 
 test("classifyModel mirrors the DeepSeek taxonomy from upstream PR #14199", () => {
@@ -76,7 +76,12 @@ test("classifyModel covers the other catalog classes", () => {
     revision: "2.5.0",
   });
   assert.deepEqual(classifyModel("x-ai", "grok-4"), { modelClass: "xai", family: "grok", revision: "4.0.0" });
-  assert.deepEqual(classifyModel("moonshotai", "kimi-k2-thinking"), { modelClass: "kimi", family: "k2" });
+  assert.deepEqual(classifyModel("moonshotai", "kimi-k2-thinking"), {
+    modelClass: "kimi",
+    family: "k2",
+    logicalId: "kimi-k2",
+    thinkingVariant: true,
+  });
   assert.deepEqual(classifyModel("kimi-code", "k3.1-pro"), {
     modelClass: "kimi",
     family: "k3",
@@ -116,6 +121,8 @@ test("classifyModel covers the other catalog classes", () => {
   assert.deepEqual(classifyModel("glm", "glm-4.6-thinking"), {
     modelClass: "glm",
     revision: "4.6.0",
+    logicalId: "glm-4.6",
+    thinkingVariant: true,
   });
   assert.deepEqual(classifyModel("openai", "qwen3.6-max"), {
     modelClass: "qwen",
@@ -125,6 +132,8 @@ test("classifyModel covers the other catalog classes", () => {
     modelClass: "openai",
     family: "gpt",
     revision: "5.6.0",
+    logicalId: "gpt-5.6-luna",
+    effort: "high",
   });
   assert.deepEqual(classifyModel("local", "some-random-model"), { modelClass: "unknown" });
 });
@@ -151,8 +160,13 @@ test("classifyModel applies the reviewed upstream overrides", () => {
     modelClass: "deepseek",
     family: "v3",
     revision: "3.2.0",
+    logicalId: "deepseek/deepseek-v3.2-thinking",
   });
-  assert.deepEqual(classifyModel("kilo", "qwq-32b"), { modelClass: "qwen", family: "qwq" });
+  assert.deepEqual(classifyModel("kilo", "qwq-32b"), {
+    modelClass: "qwen",
+    family: "qwq",
+    logicalId: "qwen/qwq-32b",
+  });
 });
 
 test("expiring upstream aliases stop applying after their deadline", () => {
@@ -299,4 +313,43 @@ test("mergeModelRows folds reviewed aliases into their inferred identity", () =>
     "deepseek/deepseek-v4-flash-0731",
   ]);
   assert.equal(merged[1].modelClass, "deepseek");
+});
+
+test("revisionAtLeast compares parsed revisions", () => {
+  assert.equal(revisionAtLeast(undefined, "3.0.0"), false);
+  assert.equal(revisionAtLeast("3.0.0", "3.1.0"), false);
+  assert.equal(revisionAtLeast("3.1.0", "3.1.0"), true);
+  assert.equal(revisionAtLeast("4.0.0", "3.1.0"), true);
+});
+
+test("AmbiguousIdentityError reports the tied identities", () => {
+  const error = new AmbiguousIdentityError("kimi-k2.5-kimi-k2.6", "k2.5", "k2.6", "family");
+  assert.equal(error.name, "AmbiguousIdentityError");
+  assert.equal(error.message, "ambiguous family for `kimi-k2.5-kimi-k2.6`: `k2.5` and `k2.6` tie");
+});
+
+test("strict classification rejects tied families", () => {
+  assert.throws(
+    () => classifyModel("moonshotai", "kimi-k2.5-kimi-k2.6"),
+    (error: unknown) => error instanceof AmbiguousIdentityError && error.message.includes("ambiguous family"),
+  );
+  assert.deepEqual(classifyModel("moonshotai", "kimi-k2.5-kimi-k2.6", { lenient: true }), { modelClass: "kimi" });
+});
+
+test("classifyModel reports the cursor lane logical id and effort", () => {
+  assert.deepEqual(classifyModel("cursor", "gpt-5.6-luna-high-fast"), {
+    modelClass: "openai",
+    family: "gpt",
+    revision: "5.6.0",
+    logicalId: "gpt-5.6-luna-fast",
+    effort: "high",
+  });
+});
+
+test("expiring aliases stay active when no observation time is supplied", () => {
+  assert.deepEqual(classifyModel("openai", "gpt-daybreak-blue-latest"), {
+    modelClass: "openai",
+    family: "gpt",
+    revision: "5.6.0",
+  });
 });

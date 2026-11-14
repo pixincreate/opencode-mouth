@@ -1,6 +1,6 @@
 {
   "repo": "can1357/oh-my-pi",
-  "comment": "Pinned upstream commits for the oh-my-pi frustration/stats features this plugin ports. Each pin is the latest commit reviewed for that path. The upstream-watch workflow compares these against the latest commit touching each path and opens an issue when they drift. After porting upstream changes, update the pinned SHAs.",
+  "comment": "Pinned upstream commits for the oh-my-pi frustration/stats features this plugin ports. Each pin is the latest commit reviewed for that path. The upstream-watch workflow compares the file content at each pin against the latest commit touching the path and opens an issue when the content drifts. After porting upstream changes, update the pinned SHAs. Discovery-only files are tracked for review but do not affect the model merge.",
   "paths": {
     "packages/stats/src/user-metrics.ts": "dfbf3cc34eeb5653580f51bfbcae558a9840f697",
     "packages/stats/src/client/routes/FrustrationRoute.tsx": "13931e810f9348a56a7a645b8e6d8b75befc4f46",
@@ -9,6 +9,7 @@
     "packages/catalog/src/compat/revision.ts": "bdf0fa736d4d42b72a1353bb833590519149255a",
     "packages/catalog/src/compat/taxonomy.ts": "12a8eddb7f2c4879a518919b9f04e6e951de7029",
     "packages/catalog/src/compat/rules/taxonomy/_collapse.kdl": "e3dd4b02073a5e79cff74e74bf2050075283f8f6",
+    "packages/catalog/src/compat/rules/taxonomy/_discovery.kdl": "7cbd873458eda1f121435884bd81bc36edd7f894",
     "packages/catalog/src/compat/rules/taxonomy/ai21.kdl": "dd570453966ec791670b8307ec0aee2904c8cc53",
     "packages/catalog/src/compat/rules/taxonomy/amazon.kdl": "dd570453966ec791670b8307ec0aee2904c8cc53",
     "packages/catalog/src/compat/rules/taxonomy/anthropic.kdl": "dd570453966ec791670b8307ec0aee2904c8cc53",

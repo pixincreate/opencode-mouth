@@ -64,6 +64,6 @@ The tag triggers the release workflow, which attaches `tui.js` and the npm tarba
   A separate cross-platform job runs the suite on macOS and on the oldest supported Node.
 - `release.yml`: builds and publishes release artifacts on tags
 - `upstream-watch.yml`: weekly check of the oh-my-pi frustration/stats features.
-  It compares the pinned SHAs in `upstream.json` against the latest upstream commits touching the tracked files and opens an issue with diff links when they drift.
+  It compares each tracked file's content at the pinned SHA with the latest upstream commit touching that path and opens an issue with diff links when the content drifts.
   After porting upstream changes, update the pins.
 - `dependabot.yml`: weekly npm and GitHub Actions updates

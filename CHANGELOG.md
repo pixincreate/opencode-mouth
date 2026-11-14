@@ -4,6 +4,17 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+### Changed
+
+- Expose the upstream logical id, thinking variant, and effort tier on classified models.
+- Throw `AmbiguousIdentityError` in strict classification; the dashboard merge keeps lenient behavior.
+- Keep expiring upstream aliases active when no observation time is supplied.
+- Track the discovery-only taxonomy file in `upstream.json`.
+
+### Fixed
+
+- The upstream watch compares file content instead of commit ids, so no-op commits no longer reopen the watch issue.
+
 ## [2.2.1] - 2026-11-15
 
 ### Fixed

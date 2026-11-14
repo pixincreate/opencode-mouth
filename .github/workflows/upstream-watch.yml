@@ -1,8 +1,8 @@
 name: Upstream watch
 
 # Watches the oh-my-pi frustration/stats features this plugin ports. When
-# upstream changes a tracked file, this opens (or updates) an issue asking
-# to port the change and bump the pinned SHA in upstream.json.
+# upstream changes a tracked file's content, this opens (or updates) an issue
+# asking to port the change and bump the pinned SHA in upstream.json.
 
 on:
   schedule:
@@ -43,15 +43,29 @@ jobs:
                 core.warning(`No commits found upstream for ${path}`);
                 continue;
               }
-              if (latest.sha !== pinned) {
-                drifted.push({
-                  path,
-                  pinned,
-                  latest: latest.sha,
-                  date: latest.commit.committer.date,
-                  url: latest.html_url,
-                });
+              if (latest.sha === pinned) continue;
+
+              let sameContent = false;
+              try {
+                const [pinnedFile, latestFile] = await Promise.all([
+                  github.rest.repos.getContent({ owner, repo, path, ref: pinned }),
+                  github.rest.repos.getContent({ owner, repo, path, ref: latest.sha }),
+                ]);
+                const pinnedBlob = Array.isArray(pinnedFile.data) ? undefined : pinnedFile.data.sha;
+                const latestBlob = Array.isArray(latestFile.data) ? undefined : latestFile.data.sha;
+                sameContent = pinnedBlob !== undefined && pinnedBlob === latestBlob;
+              } catch (error) {
+                core.warning(`Could not compare ${path}: ${error.message}`);
               }
+              if (sameContent) continue;
+
+              drifted.push({
+                path,
+                pinned,
+                latest: latest.sha,
+                date: latest.commit.committer.date,
+                url: latest.html_url,
+              });
             }
 
             if (drifted.length === 0) {
