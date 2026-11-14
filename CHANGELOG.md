@@ -4,6 +4,13 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+## [2.2.1] - 2026-11-15
+
+### Fixed
+
+- Zero profanity on long prompts to match upstream scoring.
+- Use upstream dated and off-peak rates for the five models with time-based pricing; all other models keep the host flat rate.
+
 ## [2.2.0] - 2026-11-15
 
 ### Changed

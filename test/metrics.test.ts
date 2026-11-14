@@ -56,17 +56,17 @@ test("code blocks do not contribute profanity", () => {
   assert.equal(m.profanity, 0);
 });
 
-test("long formatted user prompts score zero emotional signals but keep profanity", () => {
+test("long formatted user prompts score zero emotional signals and profanity", () => {
   const lines = ["fix the damn bug", "then run the tests", "you always break the docs", "then commit"];
   const m = analyzeUserMessage(lines.join("\n"));
-  assert.equal(m.profanity, 1);
-  assert.deepEqual(m.profanityWords, { damn: 1 });
+  assert.equal(m.profanity, 0);
+  assert.deepEqual(m.profanityWords, {});
   assert.equal(m.blame, 0);
   assert.equal(m.yelling, 0);
   assert.ok(m.words > 0);
 });
 
-test("profanity in a long prompt is counted per word", () => {
+test("profanity in a long prompt scores zero", () => {
   const lines = [
     "the parser is retarded, rewrite it",
     "keep the public api stable",
@@ -74,7 +74,7 @@ test("profanity in a long prompt is counted per word", () => {
     "do not touch the config",
   ];
   const m = analyzeUserMessage(lines.join("\n"));
-  assert.equal(m.profanity, 2);
-  assert.deepEqual(m.profanityWords, { retard: 1, retarded: 1 });
+  assert.equal(m.profanity, 0);
+  assert.deepEqual(m.profanityWords, {});
 });
 

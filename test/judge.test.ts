@@ -39,6 +39,23 @@ test("estimateJudgeRun follows the upstream cost model", () => {
   assert.equal(estimate.cost, (571 * 1) / 1e6 + (8 * 2) / 1e6);
 });
 
+test("estimateJudgeRun uses dated rates only for exact provider matches", () => {
+  const pending: PendingProse[] = [{ hash: "a", prose: "x".repeat(59) }];
+  const scheduled: JudgeModel = {
+    providerID: "deepseek",
+    modelID: "deepseek-v4-pro",
+    name: "DeepSeek V4 Pro",
+    inputCost: 1.32,
+    outputCost: 3.96,
+  };
+  const estimate = estimateJudgeRun(pending, scheduled, 1_789_358_400_000);
+  assert.equal(estimate.cost, (571 * 0.3) / 1e6 + (8 * 1.2) / 1e6);
+
+  const reseller: JudgeModel = { ...scheduled, providerID: "opencode-go" };
+  const flat = estimateJudgeRun(pending, reseller, 1_789_358_400_000);
+  assert.equal(flat.cost, (571 * 1.32) / 1e6 + (8 * 3.96) / 1e6);
+});
+
 test("runJudge saves verdicts and reports progress", async () => {
   const prose = "why did you break it again";
   const pending: PendingProse[] = [{ hash: proseHash(prose), prose }];
