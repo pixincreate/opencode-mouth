@@ -3,7 +3,7 @@ import type { Context } from "@opencode/plugin/tui/context";
 import type { JSX } from "@opentui/solid";
 import type { SessionMessageInfo } from "@opencode/client";
 import type { MessageSample } from "./messages.ts";
-import { JUDGE_RESPONSE_SCHEMA, JUDGE_SYSTEM_PROMPT, type JudgeModel, type JudgeRequest } from "./judge.ts";
+import { JUDGE_RESPONSE_SCHEMA, JUDGE_SYSTEM_PROMPT, type JudgeModel, type JudgeReply, type JudgeRequest } from "./judge.ts";
 import { palette, type Palette } from "./theme.ts";
 import { v2Samples } from "./messages.ts";
 
@@ -44,7 +44,7 @@ export interface Host {
   /** The configured default model, when the host knows one. */
   defaultJudgeModel(): Promise<{ providerID: string; modelID: string } | undefined>;
   /** One raw judge request: send the prompt, return the model's reply text. */
-  judge(input: JudgeRequest): Promise<string>;
+  judge(input: JudgeRequest): Promise<JudgeReply>;
 }
 
 export function v1Host(api: TuiPluginApi, options: unknown): Host {
@@ -135,7 +135,14 @@ export function v1Host(api: TuiPluginApi, options: unknown): Host {
           format: { type: "json_schema", schema: JUDGE_RESPONSE_SCHEMA, retryCount: 1 },
           parts: [{ type: "text", text: prompt }],
         }, { throwOnError: true, signal });
-        return (response.data?.parts ?? []).flatMap((part) => (part.type === "text" ? [part.text] : [])).join("\n");
+        const text = (response.data?.parts ?? [])
+          .flatMap((part) => (part.type === "text" ? [part.text] : []))
+          .join("\n");
+        return {
+          text,
+          ...(response.data?.info.tokens !== undefined ? { tokens: response.data.info.tokens } : {}),
+          ...(response.data?.info.cost !== undefined ? { cost: response.data.info.cost } : {}),
+        };
       } finally {
         await api.client.session.delete({ sessionID }, { throwOnError: false }).catch(() => undefined);
       }
@@ -218,7 +225,7 @@ export function v2Host(context: Context): Host {
         { prompt: `${JUDGE_SYSTEM_PROMPT}\n\n${prompt}`, model: { id: model.modelID, providerID: model.providerID } },
         { signal },
       );
-      return response.text;
+      return response as JudgeReply;
     },
   };
 }

@@ -75,7 +75,7 @@ test("v2 judge sends the system prompt and forwards the model and signal", { ski
     const main = async () => {
       const host = v2Host(context);
       const reply = await host.judge({model:{providerID:'test',modelID:'judge'},prompt:'hello',signal:controller.signal});
-      assert.equal(reply, '{"annoyed":2,"target":"assistant"}');
+      assert.equal(reply.text, '{"annoyed":2,"target":"assistant"}');
       assert.deepEqual(seen.input, {
         prompt: JUDGE_SYSTEM_PROMPT + '\\n\\nhello',
         model: {id: 'judge', providerID: 'test'},

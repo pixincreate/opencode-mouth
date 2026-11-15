@@ -9,6 +9,8 @@
 export interface TokenCost {
   input: number;
   output: number;
+  cacheRead: number;
+  cacheWrite: number;
 }
 
 interface PeakWindow {
@@ -35,6 +37,8 @@ const TIME_BASED_CARDS: Readonly<Record<string, PricingCard>> = {
   "deepseek/deepseek-flash": {
     input: 0.3,
     output: 1.2,
+    cacheRead: 0.006,
+    cacheWrite: 0,
     timeBased: {
       offPeakMultiplier: 0.5,
       peakWindows: [
@@ -46,6 +50,8 @@ const TIME_BASED_CARDS: Readonly<Record<string, PricingCard>> = {
   "deepseek/deepseek-v4-flash": {
     input: 0.3,
     output: 1.2,
+    cacheRead: 0.006,
+    cacheWrite: 0,
     timeBased: {
       offPeakMultiplier: 0.5,
       peakWindows: [
@@ -57,6 +63,8 @@ const TIME_BASED_CARDS: Readonly<Record<string, PricingCard>> = {
   "deepseek/deepseek-v4-flash-vision-exp": {
     input: 0.3,
     output: 1.2,
+    cacheRead: 0.006,
+    cacheWrite: 0,
     timeBased: {
       offPeakMultiplier: 0.5,
       peakWindows: [
@@ -68,24 +76,28 @@ const TIME_BASED_CARDS: Readonly<Record<string, PricingCard>> = {
   "deepseek/deepseek-v4-pro": {
     input: 1.32,
     output: 3.96,
+    cacheRead: 0.044,
+    cacheWrite: 0,
     timeBased: {
       offPeakMultiplier: 0.5,
       peakWindows: [
         { weekdays: [1, 2, 3, 4, 5], startMinute: 60, endMinute: 240 },
         { weekdays: [1, 2, 3, 4, 5], startMinute: 360, endMinute: 600 },
       ],
-      effectiveRates: [{ effectiveFrom: 1_789_358_400_000, input: 0.3, output: 1.2 }],
+      effectiveRates: [{ effectiveFrom: 1_789_358_400_000, input: 0.3, output: 1.2, cacheRead: 0.006, cacheWrite: 0 }],
     },
   },
   "google-antigravity/gemini-4-argon": {
     input: 2,
     output: 10,
+    cacheRead: 0.1,
+    cacheWrite: 0,
     timeBased: {
       offPeakMultiplier: 1,
       peakWindows: [],
       effectiveRates: [
-        { effectiveFrom: -8_640_000_000_000_000, input: 2, output: 10 },
-        { effectiveFrom: 1_796_112_000_000, input: 4, output: 20 },
+        { effectiveFrom: -8_640_000_000_000_000, input: 2, output: 10, cacheRead: 0.1, cacheWrite: 0 },
+        { effectiveFrom: 1_796_112_000_000, input: 4, output: 20, cacheRead: 0.2, cacheWrite: 0 },
       ],
     },
   },
@@ -103,8 +115,8 @@ function dueEffectiveRate(card: PricingCard, timestamp: number): TokenCost {
     if (winner === undefined || rate.effectiveFrom > winner.effectiveFrom) winner = rate;
   }
   return winner === undefined
-    ? { input: card.input, output: card.output }
-    : { input: winner.input, output: winner.output };
+    ? { input: card.input, output: card.output, cacheRead: card.cacheRead, cacheWrite: card.cacheWrite }
+    : { input: winner.input, output: winner.output, cacheRead: winner.cacheRead, cacheWrite: winner.cacheWrite };
 }
 
 /** Resolve a model's base rates for its exact upstream provider/model row. */
