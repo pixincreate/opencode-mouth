@@ -4,6 +4,21 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+## [2.3.0] - 2026-11-15
+
+### Added
+
+- Judge runs use host-reported token usage and cost when available.
+- The per-request cost prefers the host-reported cost, otherwise bills the actual input, output, reasoning, cache-read, and cache-write tokens at the effective time-based rates; the pre-run estimate remains the fallback.
+
+### Changed
+
+- The v1 judge transport returns the assistant message cost and tokens.
+- The v2 transport returns the extended stateless generate response when the host provides it; older hosts keep the estimate.
+- Pricing cards include cache-read and cache-write rates.
+
+## [2.2.2] - 2026-11-14
+
 ### Changed
 
 - Expose the upstream logical id, thinking variant, and effort tier on classified models.

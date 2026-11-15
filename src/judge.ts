@@ -9,7 +9,7 @@
  * cached verdicts keep the same meaning as upstream's.
  */
 
-import { effectiveTokenCost, timeBasedMultiplier } from "./pricing.ts";
+import { effectiveTokenCost, timeBasedMultiplier, type TokenCost } from "./pricing.ts";
 
 import questionFile from "./prompts/judge/frustration.json" with { type: "json" };
 
@@ -41,8 +41,23 @@ export interface JudgeRequest {
   signal: AbortSignal;
 }
 
+/** Token usage reported by the host for one judge request. */
+export interface JudgeTokens {
+  input: number;
+  output: number;
+  reasoning?: number;
+  cache?: { read: number; write: number };
+}
+
+/** One judge reply: the text to parse and the host-reported usage, when available. */
+export interface JudgeReply {
+  text: string;
+  tokens?: JudgeTokens;
+  cost?: number;
+}
+
 /** Host-provided transport: one judge request in, the model's raw reply out. */
-type JudgeTransport = (request: JudgeRequest) => Promise<string>;
+type JudgeTransport = (request: JudgeRequest) => Promise<JudgeReply>;
 
 /**
  * The two questions asked about every prose text, in ONE judge request.
@@ -239,11 +254,11 @@ interface JudgeEstimate {
 }
 
 /** The base rates in force for a judge model at `timestamp`. */
-export function judgeModelRates(model: JudgeModel, timestamp = Date.now()): { input: number; output: number } {
+export function judgeModelRates(model: JudgeModel, timestamp = Date.now()): TokenCost {
   return effectiveTokenCost(
     model.providerID,
     model.modelID,
-    { input: model.inputCost, output: model.outputCost },
+    { input: model.inputCost, output: model.outputCost, cacheRead: 0, cacheWrite: 0 },
     timestamp,
   );
 }
@@ -420,6 +435,30 @@ export async function runJudge(options: JudgeRunOptions): Promise<JudgeJobStatus
     );
   };
 
+  /**
+   * The host-reported cost wins; otherwise bill the actual token counts at the
+   * effective rates. Returns undefined only when the host reported neither, so
+   * the caller can fall back to the pre-run estimate.
+   */
+  const actualJudgeCost = (reply: JudgeReply): number | undefined => {
+    if (reply.cost !== undefined) return reply.cost;
+    if (reply.tokens === undefined) return undefined;
+    const timestamp = Date.now();
+    const rates = judgeModelRates(model, timestamp);
+    const multiplier = timeBasedMultiplier(model.providerID, model.modelID, timestamp);
+    const cacheRead = reply.tokens.cache?.read ?? 0;
+    const cacheWrite = reply.tokens.cache?.write ?? 0;
+    const output = reply.tokens.output + (reply.tokens.reasoning ?? 0);
+    return (
+      ((reply.tokens.input * rates.input +
+        output * rates.output +
+        cacheRead * rates.cacheRead +
+        cacheWrite * rates.cacheWrite) /
+        1e6) *
+      multiplier
+    );
+  };
+
   const judgeText = async (item: PendingProse): Promise<void> => {
     for (let attempt = 1; attempt <= ATTEMPTS_PER_TEXT; attempt++) {
       if (controller.signal.aborted) return;
@@ -428,7 +467,7 @@ export async function runJudge(options: JudgeRunOptions): Promise<JudgeJobStatus
       try {
         const reply = await judge({ model, prompt: buildJudgePrompt(item.prose), signal: controller.signal });
         if (controller.signal.aborted) return;
-        const answer = parseJudgeResponse(reply);
+        const answer = parseJudgeResponse(reply.text);
         if (!answer) throw new Error("judge reply was not valid JSON");
         limit.succeeded();
         record({
@@ -440,7 +479,7 @@ export async function runJudge(options: JudgeRunOptions): Promise<JudgeJobStatus
           judgedAt: Date.now(),
         });
         job.done++;
-        job.cost += requestCost(item.prose.length);
+        job.cost += actualJudgeCost(reply) ?? requestCost(item.prose.length);
         onProgress?.({ ...job });
         return;
       } catch (error) {

@@ -65,7 +65,7 @@ test("runJudge saves verdicts and reports progress", async () => {
     pending,
     model,
     signal: new AbortController().signal,
-    judge: async () => '{"annoyed":3,"target":"assistant"}',
+    judge: async () => ({ text: '{"annoyed":3,"target":"assistant"}' }),
     save: (verdicts) => saved.push(...verdicts),
     onProgress: (status) => progress.push(status.done),
   });
@@ -80,6 +80,33 @@ test("runJudge saves verdicts and reports progress", async () => {
   assert.equal(saved[0].target, "assistant");
   assert.equal(saved[0].judge, "test/judge");
   assert.ok(saved[0].judgedAt > 0);
+});
+
+test("runJudge uses the host-reported cost when present", async () => {
+  const job = await runJudge({
+    pending: [{ hash: "h", prose: "text" }],
+    model,
+    signal: new AbortController().signal,
+    judge: async () => ({ text: '{"annoyed":3,"target":"assistant"}', cost: 0.42 }),
+    save: () => {},
+  });
+  assert.equal(job.state, "done");
+  assert.equal(job.cost, 0.42);
+});
+
+test("runJudge derives cost from actual tokens when cost is absent", async () => {
+  const job = await runJudge({
+    pending: [{ hash: "h", prose: "text" }],
+    model,
+    signal: new AbortController().signal,
+    judge: async () => ({
+      text: '{"annoyed":3,"target":"assistant"}',
+      tokens: { input: 1_000_000, output: 1_000_000 },
+    }),
+    save: () => {},
+  });
+  assert.equal(job.state, "done");
+  assert.equal(job.cost, 3);
 });
 
 test("runJudge counts exhausted retries as failures", async () => {
@@ -115,7 +142,7 @@ test("runJudge adapts concurrency, rides out rate limits, and persists every ver
       try {
         if (inFlight > 64) throw new Error("429 rate limited");
         await new Promise((resolve) => setTimeout(resolve, 5));
-        return '{"annoyed":2,"target":"assistant"}';
+        return { text: '{"annoyed":2,"target":"assistant"}' };
       } finally {
         inFlight--;
       }
